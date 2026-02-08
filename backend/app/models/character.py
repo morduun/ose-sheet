@@ -1,0 +1,78 @@
+from sqlalchemy import Column, Integer, String, ForeignKey, Boolean, DateTime, JSON
+from sqlalchemy.orm import relationship
+from sqlalchemy.sql import func
+from app.database import Base
+
+
+class Character(Base):
+    """Character model for player characters in OSE."""
+
+    __tablename__ = "characters"
+
+    id = Column(Integer, primary_key=True, index=True)
+    campaign_id = Column(Integer, ForeignKey("campaigns.id", ondelete="CASCADE"), nullable=False)
+    player_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+
+    # Basic Info
+    name = Column(String, nullable=False)
+    character_class = Column(String, nullable=False)  # e.g., "Fighter", "Magic-User", "Cleric"
+    level = Column(Integer, default=1)
+    alignment = Column(String, nullable=True)  # e.g., "Lawful", "Neutral", "Chaotic"
+    xp = Column(Integer, default=0)
+
+    # Attributes (ability scores)
+    strength = Column(Integer, default=10)
+    intelligence = Column(Integer, default=10)
+    wisdom = Column(Integer, default=10)
+    dexterity = Column(Integer, default=10)
+    constitution = Column(Integer, default=10)
+    charisma = Column(Integer, default=10)
+
+    # Hit Points
+    hp_max = Column(Integer, default=1)
+    hp_current = Column(Integer, default=1)
+
+    # Armor Class
+    ac = Column(Integer, default=9)  # Descending AC (OSE default)
+
+    # Saving Throws (stored as JSON for flexibility)
+    # Format: {"death_ray_poison": 12, "magic_wands": 13, "paralysis_petrify": 14, "breath_attacks": 15, "spells_rods_staves": 16}
+    saving_throws = Column(JSON, nullable=True)
+
+    # Combat Stats (stored as JSON for attack matrices)
+    # Format: {"thac0": 19, "attack_bonus": 0}
+    combat_stats = Column(JSON, nullable=True)
+
+    # Currency
+    copper = Column(Integer, default=0)
+    silver = Column(Integer, default=0)
+    electrum = Column(Integer, default=0)
+    gold = Column(Integer, default=0)
+    platinum = Column(Integer, default=0)
+
+    # Character State
+    is_alive = Column(Boolean, default=True)
+
+    # Additional Notes
+    notes = Column(String, nullable=True)
+
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    # Relationships
+    campaign = relationship("Campaign", back_populates="characters")
+    player = relationship("User", back_populates="characters")
+    items = relationship(
+        "Item",
+        secondary="character_items",
+        back_populates="characters",
+    )
+    spells = relationship(
+        "Spell",
+        secondary="character_spellbook",
+        back_populates="characters",
+    )
+
+    def __repr__(self):
+        return f"<Character(id={self.id}, name='{self.name}', class='{self.character_class}', level={self.level})>"

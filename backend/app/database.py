@@ -1,0 +1,30 @@
+from sqlalchemy import create_engine
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import sessionmaker
+from app.config import settings
+
+# Create SQLAlchemy engine
+# For SQLite, we need to enable foreign keys and use check_same_thread=False for FastAPI
+engine = create_engine(
+    settings.database_url,
+    connect_args={"check_same_thread": False} if "sqlite" in settings.database_url else {},
+    echo=settings.debug,  # Log SQL queries in debug mode
+)
+
+# SessionLocal class for database sessions
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+# Base class for all models
+Base = declarative_base()
+
+
+def get_db():
+    """
+    Dependency function to get database session.
+    Usage: db: Session = Depends(get_db)
+    """
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
