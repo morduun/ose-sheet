@@ -7,6 +7,7 @@ from app.models import Campaign, User, Character
 from app.models.item import campaign_stash, character_items, Item
 from app.schemas import (
     Campaign as CampaignSchema,
+    Character as CharacterSchema,
     CampaignCreate,
     CampaignUpdate,
     CampaignWithDetails,
@@ -27,6 +28,7 @@ from app.services.permissions import (
     can_assign_item_to_character,
     get_user_campaigns,
 )
+from app.services.modifiers import compute_ac, compute_equipped_weapons
 
 router = APIRouter()
 
@@ -572,3 +574,46 @@ async def return_to_stash(
     db.commit()
     item = db.query(Item).filter(Item.id == item_id).first()
     return {"message": f"{character.name} returned {req.quantity} {item.name} to the stash"}
+
+
+# --- Referee Panel Endpoint ---
+
+
+@router.get("/{campaign_id}/referee", response_model=list[CharacterSchema])
+async def get_referee_panel(
+    campaign_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Get all living characters with computed weapons/AC for the referee panel. GM only."""
+    campaign = _get_campaign_or_404(db, campaign_id)
+    if not is_campaign_gm(current_user, campaign):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only the GM can access the referee panel",
+        )
+
+    characters = (
+        db.query(Character)
+        .filter(
+            Character.campaign_id == campaign_id,
+            Character.is_alive == True,
+        )
+        .all()
+    )
+
+    result = []
+    for char in characters:
+        _ = char.character_class  # force-load relationship
+        fresh_weapons = compute_equipped_weapons(char, db)
+        fresh_ac = compute_ac(char, db)
+        db.expunge(char)
+        cs = dict(char.combat_stats or {})
+        cs["equipped_weapons"] = fresh_weapons
+        cs["rear_ac"] = fresh_ac["rear_ac"]
+        cs["shieldless_ac"] = fresh_ac["shieldless_ac"]
+        char.combat_stats = cs
+        char.ac = fresh_ac["ac"]
+        result.append(char)
+
+    return result

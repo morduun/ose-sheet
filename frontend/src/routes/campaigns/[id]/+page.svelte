@@ -90,6 +90,7 @@
       </button>
       {#if isGM}
         <div class="ml-auto flex gap-2">
+          <a href="/campaigns/{campaignId}/referee" class="btn text-xs">Referee Panel</a>
           <button class="btn-danger text-xs" on:click={deleteCampaign}>Delete Campaign</button>
         </div>
       {/if}
