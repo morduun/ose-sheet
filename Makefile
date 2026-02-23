@@ -1,6 +1,7 @@
 .PHONY: backend frontend dev install install-backend install-frontend \
        migrate migrate-new seed seed-all seed-test-user seed-admin \
-       seed-classes seed-items seed-spells build db-shell
+       seed-classes seed-items seed-spells build db-shell \
+       backup restore list-backups
 
 # ── Dev Servers ──────────────────────────────────────────────
 
@@ -50,6 +51,18 @@ seed-items:
 
 seed-spells:
 	cd backend && . .venv/bin/activate && python seed_default_spells.py
+
+# ── Backups ──────────────────────────────────────────────────
+
+backup:
+	cd backend && . .venv/bin/activate && python -c "from app.services.backup import create_backup; p = create_backup('data/ose_sheets.db'); print(f'Backup created: {p}')"
+
+restore:
+	@test -n "$(FILE)" || (echo "Usage: make restore FILE=backups/ose_sheets_20260222.db" && exit 1)
+	cd backend && . .venv/bin/activate && python -c "import shutil; shutil.copy2('$(FILE)', 'data/ose_sheets.db'); print('Restored from $(FILE)')"
+
+list-backups:
+	@ls -lh backend/backups/ose_sheets_*.db 2>/dev/null || echo "No backups found"
 
 # ── Build ────────────────────────────────────────────────────
 

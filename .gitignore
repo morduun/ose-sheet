@@ -188,8 +188,14 @@ cython_debug/
 #  you could uncomment the following to ignore the entire vscode folder
 # .vscode/
 
+# Claude Code
+CLAUDE.md
+
 # SQLite database
 backend/data/*.db
+
+# Database backups
+backend/backups/
 
 # Node
 node_modules/

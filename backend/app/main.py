@@ -5,7 +5,7 @@ from app.config import settings
 from app.database import engine, Base
 
 # Import routers
-from app.api import auth, campaigns, characters, character_classes, items, spells
+from app.api import auth, backup, campaigns, characters, character_classes, items, spells
 
 # Create FastAPI application
 app = FastAPI(
@@ -67,3 +67,4 @@ app.include_router(characters.router, prefix="/api/characters", tags=["Character
 app.include_router(character_classes.router, prefix="/api/character-classes", tags=["Character Classes"])
 app.include_router(items.router, prefix="/api/items", tags=["Items"])
 app.include_router(spells.router, prefix="/api/spells", tags=["Spells"])
+app.include_router(backup.router, prefix="/api/backups", tags=["Backups"])
