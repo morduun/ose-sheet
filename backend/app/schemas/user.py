@@ -12,7 +12,7 @@ class UserBase(BaseModel):
 class UserCreate(UserBase):
     """Schema for creating a new user."""
 
-    google_id: str
+    google_id: str | None = None
 
 
 class UserUpdate(BaseModel):
@@ -25,7 +25,8 @@ class User(UserBase):
     """Schema for user responses."""
 
     id: int
-    google_id: str
+    google_id: str | None = None
+    is_admin: bool
     created_at: datetime
     updated_at: datetime | None = None
 

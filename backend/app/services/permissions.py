@@ -1,6 +1,32 @@
 """Permission and authorization service for access control."""
 
-from app.models import User, Campaign, Character, Item
+from app.models import User, Campaign, Character, Item, CharacterClass
+
+
+def is_admin(user: User) -> bool:
+    """
+    Check if user has admin privileges.
+
+    Args:
+        user: User to check
+
+    Returns:
+        True if user is an admin, False otherwise
+    """
+    return user.is_admin
+
+
+def can_create_default_content(user: User) -> bool:
+    """
+    Check if user can create default items/spells. Admin-only.
+
+    Args:
+        user: User to check
+
+    Returns:
+        True if user can create defaults, False otherwise
+    """
+    return is_admin(user)
 
 
 def is_campaign_gm(user: User, campaign: Campaign) -> bool:
@@ -122,8 +148,8 @@ def can_edit_item(user: User, item: Item) -> bool:
         True if user can edit the item, False otherwise
     """
     if item.is_default:
-        # Default items are admin-only (Phase 3)
-        return False
+        # Default items are admin-only
+        return is_admin(user)
 
     if item.campaign_id is None:
         # Orphaned item, no one can edit
@@ -165,6 +191,32 @@ def can_assign_item_to_character(user: User, character: Character) -> bool:
         True if user can assign items to the character, False otherwise
     """
     return can_edit_character(user, character)
+
+
+
+def can_edit_character_class(user: User, character_class: CharacterClass) -> bool:
+    """
+    Check if user can edit a character class.
+
+    For default classes: Admin-only
+    For campaign classes: Must be campaign GM
+
+    Args:
+        user: User to check
+        character_class: CharacterClass to check against
+
+    Returns:
+        True if user can edit the character class, False otherwise
+    """
+    if character_class.is_default:
+        # Default classes are admin-only
+        return is_admin(user)
+
+    if character_class.campaign_id is None:
+        # Orphaned class, no one can edit
+        return False
+
+    return is_campaign_gm(user, character_class.campaign)
 
 
 def get_user_campaigns(user: User) -> list:

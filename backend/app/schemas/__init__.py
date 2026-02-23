@@ -7,14 +7,34 @@ from app.schemas.campaign import (
     CampaignJoin,
 )
 from app.schemas.character import Character, CharacterCreate, CharacterUpdate
+from app.schemas.character_class import (
+    CharacterClass,
+    CharacterClassCreate,
+    CharacterClassUpdate,
+)
 from app.schemas.item import (
     Item,
     ItemCreate,
     ItemUpdate,
     ItemPublic,
+    SecretEntry,
+    SecretToggleRequest,
     CharacterItemAssignment,
+    CharacterInventoryEntry,
+    CharacterInventoryEntryGM,
+    StashEntry,
+    StashAddRequest,
+    StashTakeRequest,
+    StashReturnRequest,
+    StashQuantityUpdate,
 )
-from app.schemas.spell import Spell, SpellCreate, SpellUpdate, CharacterSpellAssignment
+from app.schemas.spell import Spell, SpellCreate, SpellBatchCreate, SpellUpdate, CharacterSpellAssignment
+from app.schemas.memorized_spell import (
+    MemorizedSpellEntry,
+    SpellSlotInfo,
+    CharacterSpellsResponse,
+    MemorizeRequest,
+)
 
 __all__ = [
     "User",
@@ -29,13 +49,30 @@ __all__ = [
     "Character",
     "CharacterCreate",
     "CharacterUpdate",
+    "CharacterClass",
+    "CharacterClassCreate",
+    "CharacterClassUpdate",
     "Item",
     "ItemCreate",
     "ItemUpdate",
     "ItemPublic",
+    "SecretEntry",
+    "SecretToggleRequest",
     "CharacterItemAssignment",
+    "CharacterInventoryEntry",
+    "CharacterInventoryEntryGM",
+    "StashEntry",
+    "StashAddRequest",
+    "StashTakeRequest",
+    "StashReturnRequest",
+    "StashQuantityUpdate",
     "Spell",
     "SpellCreate",
+    "SpellBatchCreate",
     "SpellUpdate",
     "CharacterSpellAssignment",
+    "MemorizedSpellEntry",
+    "SpellSlotInfo",
+    "CharacterSpellsResponse",
+    "MemorizeRequest",
 ]

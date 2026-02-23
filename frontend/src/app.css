@@ -1,0 +1,48 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-parchment font-sans text-ink;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='300'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='300' height='300' filter='url(%23noise)' opacity='0.04'/%3E%3C/svg%3E");
+  }
+
+  h1, h2, h3 {
+    @apply font-serif;
+  }
+}
+
+@layer components {
+  .panel {
+    @apply bg-parchment-50 border border-ink-faint rounded-sm shadow-sm p-4;
+  }
+
+  .section-title {
+    @apply font-serif text-lg text-ink border-b border-ink-faint pb-1 mb-3;
+  }
+
+  .btn {
+    @apply bg-ink text-parchment-50 hover:bg-ink-light rounded px-3 py-1 text-sm transition-colors cursor-pointer;
+  }
+
+  .btn-danger {
+    @apply bg-red-800 text-white hover:bg-red-900 rounded px-3 py-1 text-sm transition-colors cursor-pointer;
+  }
+
+  .btn-ghost {
+    @apply border border-ink-faint text-ink hover:bg-parchment-100 rounded px-3 py-1 text-sm transition-colors cursor-pointer;
+  }
+
+  .input {
+    @apply bg-parchment-50 border border-ink-faint rounded px-2 py-1 text-ink text-sm focus:outline-none focus:border-ink;
+  }
+
+  .tab {
+    @apply px-4 py-2 text-sm font-medium text-ink-faint hover:text-ink border-b-2 border-transparent transition-colors cursor-pointer;
+  }
+
+  .tab-active {
+    @apply px-4 py-2 text-sm font-medium text-ink border-b-2 border-ink bg-parchment-50 cursor-pointer;
+  }
+}

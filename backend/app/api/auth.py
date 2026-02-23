@@ -11,7 +11,7 @@ from app.database import get_db
 from app.dependencies import get_current_user
 from app.models import User
 from app.schemas.auth import TokenResponse, TokenRequest
-from app.schemas.user import UserPublic
+from app.schemas.user import UserPublic, User as UserSchema
 from app.services.auth import (
     create_access_token,
     get_google_user_info,
@@ -96,41 +96,45 @@ async def google_callback(request: Request, db: Session = Depends(get_db)):
     # Generate JWT access token for our API
     access_token = create_access_token(data={"user_id": user.id, "email": user.email})
 
-    # Return token and user info
-    # In a real app with frontend, you might redirect to a frontend URL with the token
-    # For now, we return JSON response
-    return TokenResponse(
-        access_token=access_token,
-        token_type="bearer",
-        user=UserPublic(id=user.id, name=user.name),
+    # Redirect to frontend with the token
+    return RedirectResponse(
+        url=f"{settings.frontend_url}/auth/callback?token={access_token}"
     )
 
 
 @router.post("/token", response_model=TokenResponse)
-async def dev_login(token_request: TokenRequest, db: Session = Depends(get_db)):
+async def email_login(token_request: TokenRequest, db: Session = Depends(get_db)):
     """
-    Development/testing endpoint for email-based login.
-
-    This endpoint allows logging in with just an email for development and testing.
-    In production, this should be disabled or protected.
+    Email-based login. Creates a new user if one doesn't exist.
 
     Args:
-        token_request: Email of existing user
+        token_request: Email and optional name
         db: Database session
 
     Returns:
         TokenResponse with JWT token and user info
-
-    Raises:
-        HTTPException: 404 if user not found
     """
     user = get_user_by_email(token_request.email, db)
 
     if not user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"User with email {token_request.email} not found",
+        # Auto-create user from email
+        # First user in the system becomes admin (the GM running the server)
+        is_first_user = db.query(User).count() == 0
+        name = token_request.name or token_request.email.split("@")[0]
+        user = User(
+            email=token_request.email,
+            name=name,
+            is_admin=is_first_user,
         )
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+
+    # Update name if provided and different
+    if token_request.name and user.name != token_request.name:
+        user.name = token_request.name
+        db.commit()
+        db.refresh(user)
 
     # Generate JWT access token
     access_token = create_access_token(data={"user_id": user.id, "email": user.email})
@@ -142,18 +146,18 @@ async def dev_login(token_request: TokenRequest, db: Session = Depends(get_db)):
     )
 
 
-@router.get("/me", response_model=UserPublic)
+@router.get("/me", response_model=UserSchema)
 async def get_current_user_info(current_user: User = Depends(get_current_user)):
     """
     Get current authenticated user's information.
 
     This endpoint is used by frontends to verify login state
-    and retrieve user info.
+    and retrieve user info including admin status.
 
     Args:
         current_user: User from JWT token (dependency injection)
 
     Returns:
-        UserPublic with current user's information
+        User schema with current user's information (includes is_admin)
     """
-    return UserPublic(id=current_user.id, name=current_user.name)
+    return current_user

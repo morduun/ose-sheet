@@ -188,6 +188,18 @@ cython_debug/
 #  you could uncomment the following to ignore the entire vscode folder
 # .vscode/
 
+# SQLite database
+backend/data/*.db
+
+# Node
+node_modules/
+
+# SvelteKit build
+.svelte-kit/
+
+# Dice-box 3D assets (copied by postinstall)
+frontend/static/assets/dice-box/
+
 # Ruff stuff:
 .ruff_cache/
 

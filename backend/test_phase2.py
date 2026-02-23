@@ -389,14 +389,16 @@ class Phase2TestRunner:
         from app.models import User
 
         db = SessionLocal()
-        user2 = User(
-            id=2,
-            google_id="test-google-id-2",
-            email="user2@example.com",
-            name="Test User 2"
-        )
-        db.add(user2)
-        db.commit()
+        # Check if user already exists
+        existing_user = db.query(User).filter(User.email == "user2@example.com").first()
+        if not existing_user:
+            user2 = User(
+                google_id="test-google-id-2",
+                email="user2@example.com",
+                name="Test User 2"
+            )
+            db.add(user2)
+            db.commit()
         db.close()
 
         # Get token for user 2

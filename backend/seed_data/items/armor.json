@@ -1,0 +1,44 @@
+[
+  {
+    "name": "Leather Armor",
+    "item_type": "armor",
+    "weight": 20,
+    "cost_gp": 20,
+    "equippable": true,
+    "description_player": "Armor made from boiled and treated leather.",
+    "description_gm": null,
+    "item_metadata": {
+      "armor_type": "light",
+      "ac": 7
+    },
+    "is_default": true
+  },
+  {
+    "name": "Chainmail",
+    "item_type": "armor",
+    "weight": 40,
+    "cost_gp": 40,
+    "equippable": true,
+    "description_player": "Interlocking metal rings providing solid protection.",
+    "description_gm": null,
+    "item_metadata": {
+      "armor_type": "medium",
+      "ac": 5
+    },
+    "is_default": true
+  },
+  {
+    "name": "Shield",
+    "item_type": "armor",
+    "weight": 10,
+    "cost_gp": 10,
+    "equippable": true,
+    "description_player": "A wooden or metal shield that improves armor class by 1.",
+    "description_gm": null,
+    "item_metadata": {
+      "armor_type": "shield",
+      "ac_bonus": 1
+    },
+    "is_default": true
+  }
+]

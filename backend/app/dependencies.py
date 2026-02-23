@@ -82,3 +82,29 @@ async def get_current_active_user(
     """
     # Future: Add checks for user.is_active, user.is_banned, etc.
     return current_user
+
+
+async def require_admin(
+    current_user: User = Depends(get_current_user),
+) -> User:
+    """
+    FastAPI dependency that requires admin privileges.
+
+    Use this dependency on endpoints that should only be accessible
+    to administrators.
+
+    Args:
+        current_user: User from get_current_user dependency
+
+    Returns:
+        User object if user is admin
+
+    Raises:
+        HTTPException: 403 if user is not an admin
+    """
+    if not current_user.is_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin privileges required",
+        )
+    return current_user

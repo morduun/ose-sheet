@@ -2,6 +2,7 @@ from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, Table
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.database import Base
+from app.models.item import campaign_stash
 import secrets
 
 
@@ -36,6 +37,8 @@ class Campaign(Base):
     )
     characters = relationship("Character", back_populates="campaign", cascade="all, delete-orphan")
     items = relationship("Item", back_populates="campaign", cascade="all, delete-orphan")
+    character_classes = relationship("CharacterClass", back_populates="campaign", cascade="all, delete-orphan")
+    stash_items = relationship("Item", secondary=campaign_stash, backref="stash_campaigns")
 
     def __init__(self, **kwargs):
         """Generate invite code on creation if not provided."""

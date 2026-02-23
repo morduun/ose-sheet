@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, Table
+from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, Table, Boolean
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.database import Base
@@ -20,11 +20,17 @@ class Spell(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, nullable=False, index=True)
-    level = Column(Integer, nullable=False)  # 1-6 for spell level
-    spell_class = Column(String, nullable=False)  # e.g., "magic-user", "cleric", "elf", "druid"
-    description = Column(String, nullable=False)
-    range = Column(String, nullable=True)  # e.g., "60'", "Touch", "Self"
-    duration = Column(String, nullable=True)  # e.g., "1 turn", "Permanent", "Concentration"
+    level = Column(Integer, nullable=False)       # 1–6
+    spell_class = Column(String, nullable=False)  # "magic-user", "cleric", "druid", "illusionist"
+    description = Column(String, nullable=False)  # Compact reference format: key mechanics
+    range = Column(String, nullable=True)         # e.g., "60′", "Touch", "Caster"
+    duration = Column(String, nullable=True)      # e.g., "1 turn", "Permanent", "Concentration"
+    aoe = Column(String, nullable=True)           # Area of effect, e.g., "20′ radius", "60′×5′ line"
+    save = Column(String, nullable=True)          # Saving throw, e.g., "Negates", "½ damage"
+    reversed = Column(String, nullable=True)      # Description of reversed form; null if not reversible
+
+    # Default spells are available to all campaigns
+    is_default = Column(Boolean, default=True, index=True)
 
     # Timestamps
     created_at = Column(DateTime(timezone=True), server_default=func.now())

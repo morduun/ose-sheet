@@ -15,7 +15,7 @@ class Character(Base):
 
     # Basic Info
     name = Column(String, nullable=False)
-    character_class = Column(String, nullable=False)  # e.g., "Fighter", "Magic-User", "Cleric"
+    character_class_id = Column(Integer, ForeignKey("character_classes.id", ondelete="RESTRICT"), nullable=False)
     level = Column(Integer, default=1)
     alignment = Column(String, nullable=True)  # e.g., "Lawful", "Neutral", "Chaotic"
     xp = Column(Integer, default=0)
@@ -34,6 +34,9 @@ class Character(Base):
 
     # Armor Class
     ac = Column(Integer, default=9)  # Descending AC (OSE default)
+
+    # Movement Rate (feet per turn)
+    movement_rate = Column(Integer, default=120)
 
     # Saving Throws (stored as JSON for flexibility)
     # Format: {"death_ray_poison": 12, "magic_wands": 13, "paralysis_petrify": 14, "breath_attacks": 15, "spells_rods_staves": 16}
@@ -63,6 +66,7 @@ class Character(Base):
     # Relationships
     campaign = relationship("Campaign", back_populates="characters")
     player = relationship("User", back_populates="characters")
+    character_class = relationship("CharacterClass", back_populates="characters")
     items = relationship(
         "Item",
         secondary="character_items",
@@ -72,6 +76,11 @@ class Character(Base):
         "Spell",
         secondary="character_spellbook",
         back_populates="characters",
+    )
+    memorized_spells = relationship(
+        "MemorizedSpell",
+        back_populates="character",
+        cascade="all, delete-orphan",
     )
 
     def __repr__(self):

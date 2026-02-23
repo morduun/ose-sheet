@@ -1,5 +1,16 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from datetime import datetime
+
+
+class SecretEntry(BaseModel):
+    """A single revealable secret on an item."""
+    text: str
+    revealed: bool = False
+
+
+class SecretToggleRequest(BaseModel):
+    """Request to toggle a secret's revealed state."""
+    revealed: bool
 
 
 class ItemBase(BaseModel):
@@ -7,8 +18,12 @@ class ItemBase(BaseModel):
 
     name: str
     item_type: str
+    weight: float | None = None
+    cost_gp: float | None = None
+    equippable: bool = False
     description_player: str | None = None
     description_gm: str | None = None
+    secrets: list[SecretEntry] | None = None
     item_metadata: dict | None = None
 
 
@@ -24,8 +39,12 @@ class ItemUpdate(BaseModel):
 
     name: str | None = None
     item_type: str | None = None
+    weight: float | None = None
+    cost_gp: float | None = None
+    equippable: bool | None = None
     description_player: str | None = None
     description_gm: str | None = None
+    secrets: list[SecretEntry] | None = None
     item_metadata: dict | None = None
 
 
@@ -47,8 +66,13 @@ class ItemPublic(BaseModel):
     id: int
     name: str
     item_type: str
+    weight: float | None = None
+    cost_gp: float | None = None
+    equippable: bool = False
     description_player: str | None = None
+    revealed_secrets: list[str] | None = None
     item_metadata: dict | None = None
+    is_default: bool = False  # Show if item is a default item
 
     model_config = {"from_attributes": True}
 
@@ -58,3 +82,52 @@ class CharacterItemAssignment(BaseModel):
 
     character_id: int
     quantity: int = 1
+
+
+class CharacterInventoryEntry(BaseModel):
+    """An item in a character's inventory with its quantity."""
+
+    item: ItemPublic
+    quantity: int
+    slot: str | None = None  # null = carried; "armor" | "shield" | "main-hand" | "off-hand"
+
+
+class CharacterInventoryEntryGM(BaseModel):
+    """An item in a character's inventory (GM view with secrets control)."""
+    item: Item  # Full Item schema (includes secrets, description_gm)
+    quantity: int
+    slot: str | None = None
+
+
+class StashEntry(BaseModel):
+    """An item in the campaign party stash."""
+
+    item: ItemPublic
+    quantity: int
+
+
+class StashAddRequest(BaseModel):
+    """Request to add an item to the party stash."""
+
+    item_id: int
+    quantity: int = 1
+
+
+class StashTakeRequest(BaseModel):
+    """Request to take an item from the stash to a character."""
+
+    character_id: int
+    quantity: int = 1
+
+
+class StashReturnRequest(BaseModel):
+    """Request to return an item from a character to the stash."""
+
+    character_id: int
+    quantity: int = 1
+
+
+class StashQuantityUpdate(BaseModel):
+    """Update the quantity of an item in the stash."""
+
+    quantity: int = Field(..., gt=0)

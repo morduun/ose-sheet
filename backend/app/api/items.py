@@ -1,17 +1,22 @@
 """Items CRUD API endpoints with permission-based access."""
 
+import copy
+
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, attributes
+from sqlalchemy import update, insert, select
 
 from app.database import get_db
 from app.dependencies import get_current_user
 from app.models import Item, Character, User, Campaign
+from app.models.item import character_items
 from app.schemas import (
     Item as ItemSchema,
     ItemCreate,
     ItemUpdate,
     ItemPublic,
     CharacterItemAssignment,
+    SecretToggleRequest,
 )
 from app.services.permissions import (
     can_edit_item,
@@ -20,6 +25,15 @@ from app.services.permissions import (
 )
 
 router = APIRouter()
+
+
+def _item_to_public(item: Item) -> ItemPublic:
+    """Convert an Item model to ItemPublic, populating revealed_secrets."""
+    pub = ItemPublic.model_validate(item)
+    pub.revealed_secrets = [
+        s["text"] for s in (item.secrets or []) if s.get("revealed")
+    ] or None
+    return pub
 
 
 @router.post("/", response_model=ItemSchema, status_code=status.HTTP_201_CREATED)
@@ -49,12 +63,19 @@ async def create_item(
                 detail="Only the campaign GM can create items for this campaign",
             )
 
-    # Default items creation disabled in Phase 2
+    # Default items require admin privileges
     if item.is_default:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Creating default items is not yet supported",
-        )
+        if not current_user.is_admin:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Admin privileges required to create default items",
+            )
+        # Default items should not have a campaign_id
+        if item.campaign_id is not None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Default items cannot belong to a specific campaign",
+            )
 
     db_item = Item(**item.model_dump())
     db.add(db_item)
@@ -67,9 +88,10 @@ async def create_item(
 async def list_items(
     campaign_id: int | None = None,
     item_type: str | None = None,
+    equippable: bool | None = None,
     is_default: bool | None = None,
     skip: int = 0,
-    limit: int = 100,
+    limit: int = 500,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -103,11 +125,14 @@ async def list_items(
     if item_type:
         query = query.filter(Item.item_type == item_type)
 
+    if equippable is not None:
+        query = query.filter(Item.equippable == equippable)
+
     if is_default is not None:
         query = query.filter(Item.is_default == is_default)
 
-    items = query.offset(skip).limit(limit).all()
-    return items
+    items = query.order_by(Item.name).offset(skip).limit(limit).all()
+    return [_item_to_public(i) for i in items]
 
 
 @router.get("/{item_id}")
@@ -133,7 +158,7 @@ async def get_item(
     if can_view_item_full(current_user, item):
         return ItemSchema.model_validate(item)
     else:
-        return ItemPublic.model_validate(item)
+        return _item_to_public(item)
 
 
 @router.patch("/{item_id}", response_model=ItemSchema)
@@ -162,6 +187,46 @@ async def update_item(
     update_data = item_update.model_dump(exclude_unset=True)
     for field, value in update_data.items():
         setattr(db_item, field, value)
+
+    db.commit()
+    db.refresh(db_item)
+    return db_item
+
+
+@router.patch("/{item_id}/secrets/{secret_index}", response_model=ItemSchema)
+async def toggle_secret(
+    item_id: int,
+    secret_index: int,
+    body: SecretToggleRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Toggle a secret's revealed state. GM only."""
+    db_item = db.query(Item).filter(Item.id == item_id).first()
+    if not db_item:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Item with id {item_id} not found",
+        )
+
+    if not can_edit_item(current_user, db_item):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only the campaign GM can toggle item secrets",
+        )
+
+    secrets = db_item.secrets or []
+    if secret_index < 0 or secret_index >= len(secrets):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Secret index {secret_index} out of range (0-{len(secrets) - 1})",
+        )
+
+    # Mutate a copy so SQLAlchemy detects the change
+    updated_secrets = copy.deepcopy(secrets)
+    updated_secrets[secret_index]["revealed"] = body.revealed
+    db_item.secrets = updated_secrets
+    attributes.flag_modified(db_item, "secrets")
 
     db.commit()
     db.refresh(db_item)
@@ -229,18 +294,43 @@ async def assign_item_to_character(
             detail="You can only assign items to your own characters or as campaign GM",
         )
 
-    # Check if item is already assigned
-    if item in character.items:
-        # Update quantity if already assigned
-        # Note: For simplicity in Phase 2, we'll just add to the relationship
-        # In Phase 3, we might want to handle quantity updates
-        return {"message": "Item already assigned to character"}
+    # Validate item is accessible to this character's campaign
+    if not item.is_default and item.campaign_id != character.campaign_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Item does not belong to this character's campaign",
+        )
 
-    # Assign item to character
-    character.items.append(item)
+    # Check if item is already assigned — increment quantity
+    if item in character.items:
+        db.execute(
+            update(character_items)
+            .where(
+                (character_items.c.character_id == character.id) &
+                (character_items.c.item_id == item.id)
+            )
+            .values(quantity=character_items.c.quantity + assignment.quantity)
+        )
+        db.commit()
+        new_qty = db.execute(
+            select(character_items.c.quantity).where(
+                (character_items.c.character_id == character.id) &
+                (character_items.c.item_id == item.id)
+            )
+        ).scalar()
+        return {"message": f"Added {assignment.quantity} {item.name} to {character.name}'s inventory (total: {new_qty})"}
+
+    # Assign item with quantity
+    db.execute(
+        insert(character_items).values(
+            character_id=character.id,
+            item_id=item.id,
+            quantity=assignment.quantity,
+        )
+    )
     db.commit()
 
-    return {"message": f"Item {item.name} assigned to character {character.name}"}
+    return {"message": f"Item '{item.name}' assigned to {character.name} (quantity: {assignment.quantity})"}
 
 
 @router.delete("/{item_id}/assign/{character_id}", status_code=status.HTTP_204_NO_CONTENT)

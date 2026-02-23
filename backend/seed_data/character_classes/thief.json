@@ -1,0 +1,63 @@
+{
+    "name": "Thief",
+    "Requirements": {},
+    "prime_requisite": [
+        "DEX"
+    ],
+    "hit_dice": "1d4",
+    "hp_bonus_post_9th": 1,
+    "max_level": 14,
+    "armor": "Leather",
+    "shields": "none",
+    "weapons": "any",
+    "languages": [
+        "Common"
+    ],
+    "saving_throws": {
+        "death":    [13, 13, 13, 13, 12, 12, 12, 12, 10, 10, 10, 10, 8, 8],
+        "wands":    [14, 14, 14, 14, 13, 13, 13, 13, 11, 11, 11, 11, 9, 9],
+        "paralyze": [13, 13, 13, 13, 11, 11, 11, 11, 9, 9, 9, 9, 7, 7],
+        "breath":   [16, 16, 16, 16, 14, 14, 14, 14, 12, 12, 12, 12, 10, 10],
+        "spells":   [15, 15, 15, 15, 13, 13, 13, 13, 10, 10, 10, 10, 8, 8]
+    },
+    "thac0": [19, 19, 19, 19, 17, 17, 17, 17, 14, 14, 14, 14, 12, 12],
+    "xp": [0, 1200, 2400, 4800, 9600, 20000, 40000, 80000, 160000, 280000, 400000, 520000, 640000, 760000],
+    "spells": {
+        "1st": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        "2nd": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        "3rd": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        "4th": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        "5th": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        "6th": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+    },
+    "turning": {
+        "1hd": ["-", "-", "-", "-", "-", "-", "-", "-", "-", "-", "-", "-", "-", "-"],
+        "2hd": ["-", "-", "-", "-", "-", "-", "-", "-", "-", "-", "-", "-", "-", "-"],
+        "2+hd": ["-", "-", "-", "-", "-", "-", "-", "-", "-", "-", "-", "-", "-", "-"],
+        "3hd": ["-", "-", "-", "-", "-", "-", "-", "-", "-", "-", "-", "-", "-", "-"],
+        "4hd": ["-", "-", "-", "-", "-", "-", "-", "-", "-", "-", "-", "-", "-", "-"],
+        "5hd": ["-", "-", "-", "-", "-", "-", "-", "-", "-", "-", "-", "-", "-", "-"],
+        "6hd": ["-", "-", "-", "-", "-", "-", "-", "-", "-", "-", "-", "-", "-", "-"],
+        "7hd": ["-", "-", "-", "-", "-", "-", "-", "-", "-", "-", "-", "-", "-", "-"],
+        "8hd": ["-", "-", "-", "-", "-", "-", "-", "-", "-", "-", "-", "-", "-", "-"],
+        "9hd": ["-", "-", "-", "-", "-", "-", "-", "-", "-", "-", "-", "-", "-", "-"],
+        "10hd": ["-", "-", "-", "-", "-", "-", "-", "-", "-", "-", "-", "-", "-", "-"],
+        "11hd": ["-", "-", "-", "-", "-", "-", "-", "-", "-", "-", "-", "-", "-", "-"],
+        "12+hd": ["-", "-", "-", "-", "-", "-", "-", "-", "-", "-", "-", "-", "-", "-"]
+    },
+    "thief_skills": {
+        "climb_surface": [87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 99],
+        "find_traps": [10, 15, 20, 25, 30, 40, 50, 60, 70, 80, 90, 95, 97, 99],
+        "hear_noise": [2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 5, 5, 5, 5],
+        "hide_shadows": [10, 15, 20, 25, 30, 35, 45, 55, 65, 75, 85, 90, 95, 99],
+        "move_silent": [20, 25, 30, 35, 40, 45, 55, 65, 75, 85, 95, 96, 98, 99],
+        "open_locks": [15, 20, 25, 30, 35, 45, 55, 65, 75, 85, 95, 96, 97, 99],
+        "pick_pockets": [20, 25, 30, 35, 40, 45, 55, 65, 75, 85, 95, 105, 115, 125]
+    },
+    "abilities": {
+        "Backstab": "When attacking an unaware opponent from behind, a thief receives a +4 bonus to hit and doubles any damage dealt.",
+        "Read Languages": "A thief of 4th level or higher can read non-magical text in any language (including dead languages and basic codes) with 80% probability. If the roll does not succeed, the thief may not try to read that particular text again before gaining an experience level.",
+        "Use Magic Scrolls": "A thief of 10th level or higher can cast arcane spells from scrolls. There is a 10% chance of error, and the spell will not function as expected, creating an unusual or deleterious effect."
+    },
+    "domain": "After reaching 9th level, a thief can establish a thieves' den, attracting 2d6 apprentices of 1st level. These thieves will serve the character with some reliability; however, should any be arrested or killed, the PC will not be able to attract apprentices to replace them. A successful thief might use these followers to start a Thieves' Guild."
+}

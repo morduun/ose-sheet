@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, ForeignKey, Boolean, DateTime, JSON, Table
+from sqlalchemy import Column, Integer, String, Float, ForeignKey, Boolean, DateTime, JSON, Table
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.database import Base
@@ -9,6 +9,16 @@ character_items = Table(
     "character_items",
     Base.metadata,
     Column("character_id", Integer, ForeignKey("characters.id", ondelete="CASCADE"), primary_key=True),
+    Column("item_id", Integer, ForeignKey("items.id", ondelete="CASCADE"), primary_key=True),
+    Column("quantity", Integer, default=1),
+    Column("slot", String, nullable=True),  # null = carried; "armor" | "shield" | "main-hand" | "off-hand"
+)
+
+# Association table for campaign shared stash (party loot pool)
+campaign_stash = Table(
+    "campaign_stash",
+    Base.metadata,
+    Column("campaign_id", Integer, ForeignKey("campaigns.id", ondelete="CASCADE"), primary_key=True),
     Column("item_id", Integer, ForeignKey("items.id", ondelete="CASCADE"), primary_key=True),
     Column("quantity", Integer, default=1),
 )
@@ -24,11 +34,19 @@ class Item(Base):
 
     # Basic Info
     name = Column(String, nullable=False, index=True)
-    item_type = Column(String, nullable=False)  # e.g., "weapon", "armor", "equipment", "treasure"
+    item_type = Column(String, nullable=False)  # weapon, armor, ammo, consumable, tool, treasure
+
+    # Promoted fields (previously in item_metadata)
+    weight = Column(Float, nullable=True)        # in coins (1 coin ≈ 0.1 lb per OSE)
+    cost_gp = Column(Float, nullable=True)       # cost in gold pieces
+    equippable = Column(Boolean, default=False)   # can be worn/wielded
 
     # Descriptions
     description_player = Column(String, nullable=True)  # What players can see
     description_gm = Column(String, nullable=True)  # What only the GM can see
+
+    # Revealable secrets — list of {text: str, revealed: bool}
+    secrets = Column(JSON, nullable=True, default=None)
 
     # Item-specific metadata (stored as JSON for flexibility)
     # For weapons: {"weapon_type": "sword", "damage_dice": "1d8", "damage_bonus": 0, "hit_bonus": 0, "range": null}

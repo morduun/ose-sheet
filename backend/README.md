@@ -115,6 +115,36 @@ curl -X POST http://localhost:8000/api/characters/ \
   }'
 ```
 
+## Admin Users and Default Content
+
+Phase 3A introduces admin users who can create and manage default items and spells that are available to all campaigns.
+
+### Creating an Admin User
+
+```bash
+# Run the admin user seed script
+python seed_admin_user.py
+
+# Get admin token
+curl -X POST http://localhost:8000/api/auth/token \
+  -H "Content-Type: application/json" \
+  -d '{"email": "admin@example.com"}'
+```
+
+The admin user has `is_admin: true` in their user record and can create default items/spells.
+
+### Seeding Default Content
+
+```bash
+# Seed default items (weapons, armor, equipment)
+python seed_default_items.py
+
+# Seed default spells (magic-user, cleric, elf, druid)
+python seed_default_spells.py
+```
+
+Default items and spells are visible to all users across all campaigns. Only admins can create or edit them.
+
 ## Database
 
 The application uses SQLite by default, with the database file stored in `../data/ose_sheets.db`.
@@ -140,11 +170,23 @@ See the main CLAUDE.md file for detailed architecture documentation.
 - Spells CRUD with character spellbook management
 - Item/spell assignment to characters
 
-**Phase 3 (TODO):**
+**Phase 3A (Complete):**
+- Admin role for user management
+- Admin-only default item and spell creation
+- Default content seeding (items and spells from OSE)
+- Item quantity tracking in character inventory
+- Campaign-based spell filtering
+
+**Phase 3B (TODO):**
+- Character class templates for all 7 OSE classes
 - Auto-population of character stats based on class
-- Default items seeding (mundane equipment)
-- Spell database seeding from reference PDFs
-- Admin role for managing default content
+- Class-specific starting equipment
+- Class-specific spell lists
+
+**Phase 3C (TODO):**
+- Manual XP tracking
+- Level progression tracking
+- GM-driven stat updates on level-up
 
 ## Development
 
@@ -156,6 +198,12 @@ python verify_setup.py
 
 # Run Phase 1 tests
 python test_phase1.py
+
+# Run Phase 2 tests (requires server running)
+python test_phase2.py
+
+# Run Phase 3A quick tests (requires server running)
+./test_phase3a_quick.sh
 ```
 
 ### Database Management

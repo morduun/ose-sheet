@@ -1,12 +1,14 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, computed_field
 from datetime import datetime
+from app.schemas.character_class import CharacterClass as CharacterClassSchema
+from app.services.modifiers import calculate_modifiers
 
 
 class CharacterBase(BaseModel):
     """Base character schema with common attributes."""
 
     name: str
-    character_class: str
+    character_class_id: int = Field(..., description="ID of the character's class")
     level: int = 1
     alignment: str | None = None
     xp: int = 0
@@ -25,6 +27,9 @@ class CharacterBase(BaseModel):
 
     # Armor Class
     ac: int = Field(default=9, ge=0)
+
+    # Movement Rate
+    movement_rate: int = Field(default=120, ge=0)
 
     # Saving Throws (optional JSON)
     saving_throws: dict | None = None
@@ -50,13 +55,13 @@ class CharacterCreate(CharacterBase):
     """Schema for creating a new character."""
 
     campaign_id: int
+    player_id: int | None = None  # GM can assign to a player; defaults to current user
 
 
 class CharacterUpdate(BaseModel):
     """Schema for updating a character."""
 
     name: str | None = None
-    character_class: str | None = None
     level: int | None = Field(default=None, ge=1)
     alignment: str | None = None
     xp: int | None = Field(default=None, ge=0)
@@ -71,6 +76,7 @@ class CharacterUpdate(BaseModel):
     hp_max: int | None = Field(default=None, ge=1)
     hp_current: int | None = Field(default=None, ge=0)
     ac: int | None = Field(default=None, ge=0)
+    movement_rate: int | None = Field(default=None, ge=0)
 
     saving_throws: dict | None = None
     combat_stats: dict | None = None
@@ -83,6 +89,7 @@ class CharacterUpdate(BaseModel):
 
     is_alive: bool | None = None
     notes: str | None = None
+    player_id: int | None = None  # GM can reassign character ownership
 
 
 class Character(CharacterBase):
@@ -91,7 +98,46 @@ class Character(CharacterBase):
     id: int
     campaign_id: int
     player_id: int
+    character_class: CharacterClassSchema  # Full class object via relationship
     created_at: datetime
     updated_at: datetime | None = None
 
     model_config = {"from_attributes": True}
+
+    @computed_field
+    @property
+    def thac0(self) -> int | None:
+        """Extract THAC0 from combat_stats for convenient frontend access."""
+        if self.combat_stats:
+            return self.combat_stats.get("thac0")
+        return None
+
+    @computed_field
+    @property
+    def rear_ac(self) -> int | None:
+        """Rear AC from combat_stats (no DEX, no shield)."""
+        if self.combat_stats:
+            return self.combat_stats.get("rear_ac")
+        return None
+
+    @computed_field
+    @property
+    def shieldless_ac(self) -> int | None:
+        """Shieldless AC from combat_stats (no shield bonus)."""
+        if self.combat_stats:
+            return self.combat_stats.get("shieldless_ac")
+        return None
+
+    @computed_field
+    @property
+    def equipped_weapons(self) -> list[dict] | None:
+        """Pre-computed weapon stats from combat_stats."""
+        if self.combat_stats:
+            return self.combat_stats.get("equipped_weapons")
+        return None
+
+    @computed_field
+    @property
+    def modifiers(self) -> dict:
+        """Derived OSE attribute modifiers and prime requisite XP bonus."""
+        return calculate_modifiers(self)

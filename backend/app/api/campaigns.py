@@ -1,8 +1,10 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
+from sqlalchemy import select, insert, update as sa_update, delete as sa_delete
 from app.database import get_db
 from app.dependencies import get_current_user
-from app.models import Campaign, User
+from app.models import Campaign, User, Character
+from app.models.item import campaign_stash, character_items, Item
 from app.schemas import (
     Campaign as CampaignSchema,
     CampaignCreate,
@@ -10,9 +12,19 @@ from app.schemas import (
     CampaignWithDetails,
     CampaignJoin,
 )
+from app.schemas.item import (
+    StashEntry,
+    StashAddRequest,
+    StashTakeRequest,
+    StashReturnRequest,
+    StashQuantityUpdate,
+    ItemPublic,
+)
 from app.services.permissions import (
     can_view_campaign,
     can_edit_campaign,
+    is_campaign_gm,
+    can_assign_item_to_character,
     get_user_campaigns,
 )
 
@@ -178,3 +190,385 @@ async def join_campaign(
     db.refresh(campaign)
 
     return campaign
+
+
+# --- Party Stash Endpoints ---
+
+
+def _get_campaign_or_404(db: Session, campaign_id: int) -> Campaign:
+    """Helper to fetch a campaign or raise 404."""
+    campaign = db.query(Campaign).filter(Campaign.id == campaign_id).first()
+    if not campaign:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Campaign with id {campaign_id} not found",
+        )
+    return campaign
+
+
+@router.get("/{campaign_id}/stash", response_model=list[StashEntry])
+async def list_stash(
+    campaign_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """List all items in the campaign's party stash."""
+    campaign = _get_campaign_or_404(db, campaign_id)
+    if not can_view_campaign(current_user, campaign):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You don't have access to this campaign",
+        )
+
+    rows = db.execute(
+        select(campaign_stash.c.item_id, campaign_stash.c.quantity)
+        .where(campaign_stash.c.campaign_id == campaign_id)
+    ).all()
+
+    entries = []
+    for item_id, quantity in rows:
+        item = db.query(Item).filter(Item.id == item_id).first()
+        if item:
+            entries.append(StashEntry(
+                item=ItemPublic.model_validate(item),
+                quantity=quantity,
+            ))
+    return entries
+
+
+@router.post("/{campaign_id}/stash", response_model=StashEntry, status_code=status.HTTP_201_CREATED)
+async def add_to_stash(
+    campaign_id: int,
+    req: StashAddRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Add an item to the party stash. GM only. Upserts (increments quantity if exists)."""
+    campaign = _get_campaign_or_404(db, campaign_id)
+    if not is_campaign_gm(current_user, campaign):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only the GM can add items to the stash",
+        )
+
+    # Validate item exists and is accessible to this campaign
+    item = db.query(Item).filter(Item.id == req.item_id).first()
+    if not item:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Item with id {req.item_id} not found",
+        )
+    if not item.is_default and item.campaign_id != campaign_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Item does not belong to this campaign",
+        )
+
+    # Check if already in stash — upsert
+    existing = db.execute(
+        select(campaign_stash.c.quantity).where(
+            (campaign_stash.c.campaign_id == campaign_id)
+            & (campaign_stash.c.item_id == req.item_id)
+        )
+    ).scalar()
+
+    if existing is not None:
+        new_qty = existing + req.quantity
+        db.execute(
+            sa_update(campaign_stash)
+            .where(
+                (campaign_stash.c.campaign_id == campaign_id)
+                & (campaign_stash.c.item_id == req.item_id)
+            )
+            .values(quantity=new_qty)
+        )
+    else:
+        new_qty = req.quantity
+        db.execute(
+            insert(campaign_stash).values(
+                campaign_id=campaign_id,
+                item_id=req.item_id,
+                quantity=req.quantity,
+            )
+        )
+    db.commit()
+
+    return StashEntry(item=ItemPublic.model_validate(item), quantity=new_qty)
+
+
+@router.patch("/{campaign_id}/stash/{item_id}", response_model=StashEntry)
+async def update_stash_quantity(
+    campaign_id: int,
+    item_id: int,
+    req: StashQuantityUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Set the quantity of an item in the stash. GM only."""
+    campaign = _get_campaign_or_404(db, campaign_id)
+    if not is_campaign_gm(current_user, campaign):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only the GM can update stash quantities",
+        )
+
+    existing = db.execute(
+        select(campaign_stash.c.quantity).where(
+            (campaign_stash.c.campaign_id == campaign_id)
+            & (campaign_stash.c.item_id == item_id)
+        )
+    ).scalar()
+    if existing is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Item not found in stash",
+        )
+
+    db.execute(
+        sa_update(campaign_stash)
+        .where(
+            (campaign_stash.c.campaign_id == campaign_id)
+            & (campaign_stash.c.item_id == item_id)
+        )
+        .values(quantity=req.quantity)
+    )
+    db.commit()
+
+    item = db.query(Item).filter(Item.id == item_id).first()
+    return StashEntry(item=ItemPublic.model_validate(item), quantity=req.quantity)
+
+
+@router.delete("/{campaign_id}/stash/{item_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def remove_from_stash(
+    campaign_id: int,
+    item_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Remove an item from the stash entirely. GM only."""
+    campaign = _get_campaign_or_404(db, campaign_id)
+    if not is_campaign_gm(current_user, campaign):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only the GM can remove items from the stash",
+        )
+
+    existing = db.execute(
+        select(campaign_stash.c.quantity).where(
+            (campaign_stash.c.campaign_id == campaign_id)
+            & (campaign_stash.c.item_id == item_id)
+        )
+    ).scalar()
+    if existing is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Item not found in stash",
+        )
+
+    db.execute(
+        sa_delete(campaign_stash).where(
+            (campaign_stash.c.campaign_id == campaign_id)
+            & (campaign_stash.c.item_id == item_id)
+        )
+    )
+    db.commit()
+    return None
+
+
+@router.post("/{campaign_id}/stash/{item_id}/take", response_model=dict)
+async def take_from_stash(
+    campaign_id: int,
+    item_id: int,
+    req: StashTakeRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Take an item from the stash into a character's inventory."""
+    campaign = _get_campaign_or_404(db, campaign_id)
+    if not can_view_campaign(current_user, campaign):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You don't have access to this campaign",
+        )
+
+    # Validate character
+    character = db.query(Character).filter(Character.id == req.character_id).first()
+    if not character:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Character with id {req.character_id} not found",
+        )
+    if character.campaign_id != campaign_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Character does not belong to this campaign",
+        )
+    if not can_assign_item_to_character(current_user, character):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only take items for your own characters or as campaign GM",
+        )
+
+    # Check stash quantity
+    stash_qty = db.execute(
+        select(campaign_stash.c.quantity).where(
+            (campaign_stash.c.campaign_id == campaign_id)
+            & (campaign_stash.c.item_id == item_id)
+        )
+    ).scalar()
+    if stash_qty is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Item not found in stash",
+        )
+    if stash_qty < req.quantity:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Not enough in stash (available: {stash_qty})",
+        )
+
+    # Decrement stash
+    new_stash_qty = stash_qty - req.quantity
+    if new_stash_qty <= 0:
+        db.execute(
+            sa_delete(campaign_stash).where(
+                (campaign_stash.c.campaign_id == campaign_id)
+                & (campaign_stash.c.item_id == item_id)
+            )
+        )
+    else:
+        db.execute(
+            sa_update(campaign_stash)
+            .where(
+                (campaign_stash.c.campaign_id == campaign_id)
+                & (campaign_stash.c.item_id == item_id)
+            )
+            .values(quantity=new_stash_qty)
+        )
+
+    # Increment character inventory
+    char_qty = db.execute(
+        select(character_items.c.quantity).where(
+            (character_items.c.character_id == req.character_id)
+            & (character_items.c.item_id == item_id)
+        )
+    ).scalar()
+
+    if char_qty is not None:
+        db.execute(
+            sa_update(character_items)
+            .where(
+                (character_items.c.character_id == req.character_id)
+                & (character_items.c.item_id == item_id)
+            )
+            .values(quantity=char_qty + req.quantity)
+        )
+    else:
+        db.execute(
+            insert(character_items).values(
+                character_id=req.character_id,
+                item_id=item_id,
+                quantity=req.quantity,
+            )
+        )
+
+    db.commit()
+    item = db.query(Item).filter(Item.id == item_id).first()
+    return {"message": f"{character.name} took {req.quantity} {item.name} from the stash"}
+
+
+@router.post("/{campaign_id}/stash/{item_id}/return", response_model=dict)
+async def return_to_stash(
+    campaign_id: int,
+    item_id: int,
+    req: StashReturnRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Return an item from a character's inventory back to the stash."""
+    campaign = _get_campaign_or_404(db, campaign_id)
+    if not can_view_campaign(current_user, campaign):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You don't have access to this campaign",
+        )
+
+    # Validate character
+    character = db.query(Character).filter(Character.id == req.character_id).first()
+    if not character:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Character with id {req.character_id} not found",
+        )
+    if character.campaign_id != campaign_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Character does not belong to this campaign",
+        )
+    if not can_assign_item_to_character(current_user, character):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only return items from your own characters or as campaign GM",
+        )
+
+    # Check character inventory quantity
+    char_qty = db.execute(
+        select(character_items.c.quantity).where(
+            (character_items.c.character_id == req.character_id)
+            & (character_items.c.item_id == item_id)
+        )
+    ).scalar()
+    if char_qty is None or char_qty < req.quantity:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Character doesn't have enough of this item (has: {char_qty or 0})",
+        )
+
+    # Decrement character inventory
+    new_char_qty = char_qty - req.quantity
+    if new_char_qty <= 0:
+        db.execute(
+            sa_delete(character_items).where(
+                (character_items.c.character_id == req.character_id)
+                & (character_items.c.item_id == item_id)
+            )
+        )
+    else:
+        db.execute(
+            sa_update(character_items)
+            .where(
+                (character_items.c.character_id == req.character_id)
+                & (character_items.c.item_id == item_id)
+            )
+            .values(quantity=new_char_qty)
+        )
+
+    # Increment stash
+    stash_qty = db.execute(
+        select(campaign_stash.c.quantity).where(
+            (campaign_stash.c.campaign_id == campaign_id)
+            & (campaign_stash.c.item_id == item_id)
+        )
+    ).scalar()
+
+    if stash_qty is not None:
+        db.execute(
+            sa_update(campaign_stash)
+            .where(
+                (campaign_stash.c.campaign_id == campaign_id)
+                & (campaign_stash.c.item_id == item_id)
+            )
+            .values(quantity=stash_qty + req.quantity)
+        )
+    else:
+        db.execute(
+            insert(campaign_stash).values(
+                campaign_id=campaign_id,
+                item_id=item_id,
+                quantity=req.quantity,
+            )
+        )
+
+    db.commit()
+    item = db.query(Item).filter(Item.id == item_id).first()
+    return {"message": f"{character.name} returned {req.quantity} {item.name} to the stash"}

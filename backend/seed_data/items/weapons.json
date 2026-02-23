@@ -1,0 +1,53 @@
+[
+  {
+    "name": "Sword, Short",
+    "item_type": "weapon",
+    "weight": 3,
+    "cost_gp": 7,
+    "equippable": true,
+    "description_player": "A short blade, effective in close combat.",
+    "description_gm": null,
+    "item_metadata": {
+      "weapon_type": "melee",
+      "damage_dice": "1d6",
+      "damage_bonus": 0,
+      "hit_bonus": 0
+    },
+    "is_default": true
+  },
+  {
+    "name": "Bow, Long",
+    "item_type": "weapon",
+    "weight": 5,
+    "cost_gp": 40,
+    "equippable": true,
+    "description_player": "A powerful ranged weapon requiring two hands.",
+    "description_gm": null,
+    "item_metadata": {
+      "weapon_type": "ranged",
+      "damage_dice": "1d6",
+      "damage_bonus": 0,
+      "hit_bonus": 0,
+      "range": "70/140/210",
+      "requires_ammo": "arrows"
+    },
+    "is_default": true
+  },
+  {
+    "name": "Dagger",
+    "item_type": "weapon",
+    "weight": 1,
+    "cost_gp": 3,
+    "equippable": true,
+    "description_player": "A small blade that can be thrown or used in melee.",
+    "description_gm": null,
+    "item_metadata": {
+      "weapon_type": "melee",
+      "damage_dice": "1d4",
+      "damage_bonus": 0,
+      "hit_bonus": 0,
+      "range": "10/20/30"
+    },
+    "is_default": true
+  }
+]

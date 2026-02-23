@@ -27,6 +27,7 @@ class TokenResponse(BaseModel):
 
 
 class TokenRequest(BaseModel):
-    """Development/testing token request (email-based login)."""
+    """Email-based login request. Creates user if not found."""
 
     email: EmailStr
+    name: str | None = None

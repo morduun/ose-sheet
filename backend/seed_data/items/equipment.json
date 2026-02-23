@@ -1,0 +1,55 @@
+[
+  {
+    "name": "Backpack",
+    "item_type": "tool",
+    "weight": 2,
+    "cost_gp": 5,
+    "equippable": false,
+    "description_player": "A leather backpack for carrying gear.",
+    "description_gm": null,
+    "item_metadata": {
+      "capacity_slots": 10
+    },
+    "is_default": true
+  },
+  {
+    "name": "Rope, 50'",
+    "item_type": "tool",
+    "weight": 5,
+    "cost_gp": 1,
+    "equippable": false,
+    "description_player": "Sturdy hemp rope.",
+    "description_gm": null,
+    "item_metadata": {
+      "length_feet": 50
+    },
+    "is_default": true
+  },
+  {
+    "name": "Torch",
+    "item_type": "tool",
+    "weight": 1,
+    "cost_gp": 0.01,
+    "equippable": false,
+    "description_player": "Provides light for 1 hour within 30' radius.",
+    "description_gm": null,
+    "item_metadata": {
+      "light_radius": 30,
+      "duration_hours": 1
+    },
+    "is_default": true
+  },
+  {
+    "name": "Rations, Iron (1 week)",
+    "item_type": "tool",
+    "weight": 7,
+    "cost_gp": 15,
+    "equippable": false,
+    "description_player": "Preserved food that lasts for one week.",
+    "description_gm": null,
+    "item_metadata": {
+      "duration_days": 7
+    },
+    "is_default": true
+  }
+]

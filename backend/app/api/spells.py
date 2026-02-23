@@ -9,6 +9,7 @@ from app.models import Spell, Character, User
 from app.schemas import (
     Spell as SpellSchema,
     SpellCreate,
+    SpellBatchCreate,
     SpellUpdate,
     CharacterSpellAssignment,
 )
@@ -24,11 +25,14 @@ async def create_spell(
     current_user: User = Depends(get_current_user),
 ):
     """
-    Create a new spell.
-
-    Phase 2: Any authenticated user can create (for testing)
-    Phase 3: Admin-only for seeding spell database
+    Create a new spell. Requires admin privileges.
     """
+    if not current_user.is_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin privileges required to create spells",
+        )
+
     db_spell = Spell(**spell.model_dump())
     db.add(db_spell)
     db.commit()
@@ -36,21 +40,59 @@ async def create_spell(
     return db_spell
 
 
-@router.get("/", response_model=list[SpellSchema])
-async def list_spells(
-    level: int | None = None,
-    spell_class: str | None = None,
-    skip: int = 0,
-    limit: int = 100,
+@router.post("/batch", response_model=list[SpellSchema], status_code=status.HTTP_201_CREATED)
+async def batch_create_spells(
+    batch: SpellBatchCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     """
-    List spells.
+    Batch-create spells from a list. Requires admin privileges.
 
-    Filters:
-    - level: Spell level (1-6)
-    - spell_class: Class that can cast (magic-user, cleric, elf, druid)
+    Spells with a duplicate (name, spell_class) pair are skipped (idempotent).
+    Returns only newly created spells.
+    """
+    if not current_user.is_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin privileges required to batch-create spells",
+        )
+
+    created = []
+    for spell_data in batch.spells:
+        existing = (
+            db.query(Spell)
+            .filter(Spell.name == spell_data.name, Spell.spell_class == spell_data.spell_class)
+            .first()
+        )
+        if existing:
+            continue
+        db_spell = Spell(**spell_data.model_dump())
+        db.add(db_spell)
+        created.append(db_spell)
+
+    db.commit()
+    for s in created:
+        db.refresh(s)
+    return created
+
+
+@router.get("/", response_model=list[SpellSchema])
+async def list_spells(
+    level: int | None = None,
+    spell_class: str | None = None,
+    name: str | None = None,
+    skip: int = 0,
+    limit: int = 200,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    List spells, optionally filtered by level, spell_class, and/or name.
+
+    Name filter is case-insensitive exact match. Useful for looking up a
+    specific spell across all classes (e.g. name=Light returns cleric,
+    magic-user, and illusionist versions).
     """
     query = db.query(Spell)
 
@@ -65,8 +107,10 @@ async def list_spells(
     if spell_class:
         query = query.filter(Spell.spell_class == spell_class)
 
-    spells = query.offset(skip).limit(limit).all()
-    return spells
+    if name:
+        query = query.filter(Spell.name.ilike(name))
+
+    return query.order_by(Spell.spell_class, Spell.level, Spell.name).offset(skip).limit(limit).all()
 
 
 @router.get("/{spell_id}", response_model=SpellSchema)
@@ -75,7 +119,7 @@ async def get_spell(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Get spell details by ID."""
+    """Get a spell by ID."""
     spell = db.query(Spell).filter(Spell.id == spell_id).first()
     if not spell:
         raise HTTPException(
@@ -92,12 +136,7 @@ async def update_spell(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """
-    Update a spell.
-
-    Phase 2: Any authenticated user can update (for testing)
-    Phase 3: Admin-only
-    """
+    """Update a spell. Requires admin privileges."""
     db_spell = db.query(Spell).filter(Spell.id == spell_id).first()
     if not db_spell:
         raise HTTPException(
@@ -105,9 +144,13 @@ async def update_spell(
             detail=f"Spell with id {spell_id} not found",
         )
 
-    # Update only provided fields
-    update_data = spell_update.model_dump(exclude_unset=True)
-    for field, value in update_data.items():
+    if not current_user.is_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin privileges required to update spells",
+        )
+
+    for field, value in spell_update.model_dump(exclude_unset=True).items():
         setattr(db_spell, field, value)
 
     db.commit()
@@ -121,17 +164,18 @@ async def delete_spell(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """
-    Delete a spell.
-
-    Phase 2: Any authenticated user can delete (for testing)
-    Phase 3: Admin-only
-    """
+    """Delete a spell. Requires admin privileges."""
     db_spell = db.query(Spell).filter(Spell.id == spell_id).first()
     if not db_spell:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Spell with id {spell_id} not found",
+        )
+
+    if not current_user.is_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin privileges required to delete spells",
         )
 
     db.delete(db_spell)
@@ -149,9 +193,8 @@ async def add_spell_to_spellbook(
     """
     Add a spell to a character's spellbook.
 
-    Must be character owner or campaign GM.
+    Must be the character owner or campaign GM.
     """
-    # Verify spell exists
     spell = db.query(Spell).filter(Spell.id == spell_id).first()
     if not spell:
         raise HTTPException(
@@ -159,7 +202,6 @@ async def add_spell_to_spellbook(
             detail=f"Spell with id {spell_id} not found",
         )
 
-    # Verify character exists
     character = db.query(Character).filter(Character.id == assignment.character_id).first()
     if not character:
         raise HTTPException(
@@ -167,22 +209,18 @@ async def add_spell_to_spellbook(
             detail=f"Character with id {assignment.character_id} not found",
         )
 
-    # Check if user can edit this character
     if not can_edit_character(current_user, character):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="You can only add spells to your own characters or as campaign GM",
         )
 
-    # Check if spell is already in spellbook
     if spell in character.spells:
         return {"message": "Spell already in character's spellbook"}
 
-    # Add spell to spellbook
     character.spells.append(spell)
     db.commit()
-
-    return {"message": f"Spell {spell.name} added to {character.name}'s spellbook"}
+    return {"message": f"Spell '{spell.name}' added to {character.name}'s spellbook"}
 
 
 @router.delete("/{spell_id}/forget/{character_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -195,9 +233,8 @@ async def remove_spell_from_spellbook(
     """
     Remove a spell from a character's spellbook.
 
-    Must be character owner or campaign GM.
+    Must be the character owner or campaign GM.
     """
-    # Verify character exists
     character = db.query(Character).filter(Character.id == character_id).first()
     if not character:
         raise HTTPException(
@@ -205,7 +242,6 @@ async def remove_spell_from_spellbook(
             detail=f"Character with id {character_id} not found",
         )
 
-    # Verify spell exists
     spell = db.query(Spell).filter(Spell.id == spell_id).first()
     if not spell:
         raise HTTPException(
@@ -213,14 +249,12 @@ async def remove_spell_from_spellbook(
             detail=f"Spell with id {spell_id} not found",
         )
 
-    # Check if user can edit this character
     if not can_edit_character(current_user, character):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="You can only remove spells from your own characters or as campaign GM",
         )
 
-    # Remove spell from spellbook
     if spell in character.spells:
         character.spells.remove(spell)
         db.commit()

@@ -1,10 +1,11 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.sessions import SessionMiddleware
 from app.config import settings
 from app.database import engine, Base
 
 # Import routers
-from app.api import auth, campaigns, characters, items, spells
+from app.api import auth, campaigns, characters, character_classes, items, spells
 
 # Create FastAPI application
 app = FastAPI(
@@ -15,6 +16,9 @@ app = FastAPI(
     redoc_url="/api/redoc",
     openapi_url="/api/openapi.json",
 )
+
+# Session middleware (required by authlib for OAuth CSRF state)
+app.add_middleware(SessionMiddleware, secret_key=settings.secret_key)
 
 # Configure CORS
 app.add_middleware(
@@ -60,5 +64,6 @@ async def health_check():
 app.include_router(auth.router, prefix="/api/auth", tags=["Authentication"])
 app.include_router(campaigns.router, prefix="/api/campaigns", tags=["Campaigns"])
 app.include_router(characters.router, prefix="/api/characters", tags=["Characters"])
+app.include_router(character_classes.router, prefix="/api/character-classes", tags=["Character Classes"])
 app.include_router(items.router, prefix="/api/items", tags=["Items"])
 app.include_router(spells.router, prefix="/api/spells", tags=["Spells"])

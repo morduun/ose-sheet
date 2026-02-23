@@ -7,16 +7,26 @@ class SpellBase(BaseModel):
 
     name: str
     level: int = Field(..., ge=1, le=6)
-    spell_class: str
-    description: str
+    spell_class: str       # "magic-user", "cleric", "druid", "illusionist"
+    description: str       # Compact reference format: key mechanics
     range: str | None = None
     duration: str | None = None
+    aoe: str | None = None       # Area of effect
+    save: str | None = None      # Saving throw (e.g., "Negates", "½ damage")
+    reversed: str | None = None  # Description of reversed form; null = not reversible
+    is_default: bool = True
 
 
 class SpellCreate(SpellBase):
     """Schema for creating a new spell."""
 
     pass
+
+
+class SpellBatchCreate(BaseModel):
+    """Schema for batch-creating spells."""
+
+    spells: list[SpellCreate]
 
 
 class SpellUpdate(BaseModel):
@@ -28,12 +38,16 @@ class SpellUpdate(BaseModel):
     description: str | None = None
     range: str | None = None
     duration: str | None = None
+    aoe: str | None = None
+    save: str | None = None
+    reversed: str | None = None
 
 
 class Spell(SpellBase):
     """Schema for spell responses."""
 
     id: int
+    is_default: bool
     created_at: datetime
     updated_at: datetime | None = None
 
