@@ -87,7 +87,12 @@
     <!-- Header -->
     <div class="flex items-center justify-between mb-6">
       <div class="flex items-center gap-3 flex-wrap">
-        <h1 class="font-serif text-3xl text-ink">{item.name}</h1>
+        <h1 class="font-serif text-3xl text-ink">
+          {item.name}
+          {#if item.unidentified_name}
+            <span class="text-lg text-ink-faint font-sans">({item.unidentified_name})</span>
+          {/if}
+        </h1>
         <Badge label={itemTypeLabel(item)} variant="default" />
         {#if item.equippable}
           <Badge label="equippable" variant="gm" />

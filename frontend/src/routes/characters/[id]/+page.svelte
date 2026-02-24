@@ -35,7 +35,7 @@
   $: isGM = character?.campaign?.gm_id === userId;
   $: isOwner = character?.user_id === userId;
 
-  // Compute whether character has rollable skills (thief skills, turning, ability skill rolls)
+  // Compute whether character has rollable skills (thief skills, turning, ability skill rolls, item skills)
   $: hasSkills = (() => {
     const cd = character?.character_class?.class_data ?? {};
     const lvlIdx = Math.max(0, (character?.level ?? 1) - 1);
@@ -60,6 +60,8 @@
     for (const m of Object.values(meta)) {
       if (m && m.type === 'skill') return true;
     }
+    // Item skills
+    if (character?.combat_stats?.item_skills?.length > 0) return true;
     return false;
   })();
 

@@ -12,6 +12,7 @@ character_items = Table(
     Column("item_id", Integer, ForeignKey("items.id", ondelete="CASCADE"), primary_key=True),
     Column("quantity", Integer, default=1),
     Column("slot", String, nullable=True),  # null = carried; "armor" | "shield" | "main-hand" | "off-hand"
+    Column("identified", Boolean, default=False, server_default="0"),
 )
 
 # Association table for campaign shared stash (party loot pool)
@@ -34,6 +35,7 @@ class Item(Base):
 
     # Basic Info
     name = Column(String, nullable=False, index=True)
+    unidentified_name = Column(String, nullable=True)  # Mundane name shown when not identified
     item_type = Column(String, nullable=False)  # weapon, armor, ammo, consumable, tool, treasure
 
     # Promoted fields (previously in item_metadata)

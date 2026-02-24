@@ -87,7 +87,8 @@
   }
 
   $: filteredItems = availableItems.filter((i) =>
-    i.name.toLowerCase().includes(searchQuery.toLowerCase())
+    i.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    (i.unidentified_name && i.unidentified_name.toLowerCase().includes(searchQuery.toLowerCase()))
   );
 
   async function assignItem(item) {
@@ -190,6 +191,16 @@
     }
   }
 
+  async function identifyItem(entry) {
+    try {
+      await api.patch(`/characters/${character.id}/items/${entry.item.id}/identify`);
+      await loadItems();
+      dispatch('ac-changed');
+    } catch (e) {
+      alert(e.message);
+    }
+  }
+
   async function toggleSecret(itemId, secretIndex, currentRevealed) {
     try {
       await api.patch(`/items/${itemId}/secrets/${secretIndex}`, {
@@ -279,9 +290,19 @@
           <div class="flex items-start gap-3 border-b border-parchment-200 pb-2 last:border-0">
             <div class="flex-1 min-w-0">
               <div class="flex items-center gap-2">
-                <span class="text-sm text-ink" class:font-bold={entry.slot}>{entry.item.name}</span>
+                {#if isGM && !entry.identified && entry.item.unidentified_name}
+                  <span class="text-sm text-ink" class:font-bold={entry.slot}>
+                    {entry.item.unidentified_name}
+                    <span class="text-ink-faint">({entry.item.name})</span>
+                  </span>
+                {:else}
+                  <span class="text-sm text-ink" class:font-bold={entry.slot}>{entry.item.name}</span>
+                {/if}
                 {#if entry.slot}
                   <Badge label={slotLabels[entry.slot] ?? entry.slot} />
+                {/if}
+                {#if !entry.identified && (entry.item.unidentified_name || (isGM && entry.item.unidentified_name))}
+                  <Badge label="Unidentified" variant="gm" />
                 {/if}
               </div>
               {#if entry.item.description_player}
@@ -334,6 +355,13 @@
               {/if}
             </div>
             <div class="flex items-center gap-1 shrink-0">
+              {#if isGM && !entry.identified && entry.item.unidentified_name}
+                <button
+                  class="btn text-xs px-1.5 py-0.5"
+                  on:click={() => identifyItem(entry)}
+                  title="Identify this item"
+                >Identify</button>
+              {/if}
               {#if entry.item.equippable}
                 {#if entry.slot}
                   <button
@@ -395,7 +423,12 @@
           on:click={() => assignItem(item)}
           disabled={addingItem === item.id}
         >
-          <div class="text-sm font-medium text-ink">{item.name}</div>
+          <div class="text-sm font-medium text-ink">
+            {item.name}
+            {#if item.unidentified_name}
+              <span class="font-normal text-ink-faint">({item.unidentified_name})</span>
+            {/if}
+          </div>
           <div class="text-xs text-ink-faint">
             {itemTypeLabel(item)}
             {#if normalizeQualities(item.item_metadata?.qualities).length}

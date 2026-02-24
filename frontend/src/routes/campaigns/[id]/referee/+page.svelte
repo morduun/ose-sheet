@@ -34,6 +34,10 @@
   // Condition input state (per-character)
   let conditionInputs = {};
 
+  // Round effects toast state
+  let roundEffectsToast = [];
+  let roundEffectsTimer = null;
+
   function getUserId() {
     const t = get(token);
     if (!t) return null;
@@ -296,6 +300,7 @@
       activeCharIndex = 0;
       encounterRound += 1;
       tickDownConditions();
+      applyRoundEffects();
     } else {
       activeCharIndex = nextIndex;
     }
@@ -334,6 +339,37 @@
     if (changed) {
       conditions = conditions;
       saveConditions();
+    }
+  }
+
+  async function applyRoundEffects() {
+    try {
+      const log = await api.post(`/campaigns/${campaignId}/round-effects`);
+      if (!log || log.length === 0) return;
+
+      // Apply HP changes to local character objects
+      for (const entry of log) {
+        const char = characters.find(c => c.id === entry.character_id);
+        if (char && entry.effects.length > 0) {
+          const lastEffect = entry.effects[entry.effects.length - 1];
+          char.hp_current = lastEffect.new_hp;
+        }
+      }
+      characters = characters;
+
+      // Build toast messages
+      const msgs = [];
+      for (const entry of log) {
+        for (const eff of entry.effects) {
+          const sign = eff.value > 0 ? '+' : '';
+          msgs.push(`${entry.character_name} ${sign}${eff.value} HP (${eff.item_name})`);
+        }
+      }
+      roundEffectsToast = msgs;
+      if (roundEffectsTimer) clearTimeout(roundEffectsTimer);
+      roundEffectsTimer = setTimeout(() => { roundEffectsToast = []; roundEffectsTimer = null; }, 5000);
+    } catch {
+      // silently fail — poll will correct
     }
   }
 </script>
@@ -508,6 +544,21 @@
       </div>
     {/if}
   </PageWrapper>
+{/if}
+
+<!-- Round Effects Toast -->
+{#if roundEffectsToast.length > 0}
+  <!-- svelte-ignore a11y-click-events-have-key-events -->
+  <!-- svelte-ignore a11y-no-static-element-interactions -->
+  <div
+    class="fixed bottom-6 right-6 z-50 panel shadow-lg border-green-800/30 bg-green-50 min-w-[220px] max-w-[360px] cursor-pointer print:hidden"
+    on:click={() => { roundEffectsToast = []; }}
+  >
+    <div class="text-xs text-green-800 font-bold uppercase tracking-wide mb-1">Round Effects</div>
+    {#each roundEffectsToast as msg}
+      <div class="text-sm text-green-900">{msg}</div>
+    {/each}
+  </div>
 {/if}
 
 <style>

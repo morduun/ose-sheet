@@ -3,6 +3,7 @@
   import StatBox from '$lib/components/shared/StatBox.svelte';
   import Modal from '$lib/components/shared/Modal.svelte';
   import { WEAPON_QUALITIES, normalizeQualities } from '$lib/item-metadata.js';
+  import Badge from '$lib/components/shared/Badge.svelte';
 
   export let character;
   export let isGM = false;
@@ -375,6 +376,63 @@
 
   $: hasClassAttacks = classAttackNames.length > 0;
 
+  // Union of item special attack names across all equipped weapons
+  $: itemAttackNames = (() => {
+    const names = [];
+    for (const w of (character.equipped_weapons || [])) {
+      for (const atk of (w.item_special_attacks || [])) {
+        if (!names.includes(atk.name)) names.push(atk.name);
+      }
+    }
+    return names;
+  })();
+
+  $: hasItemAttacks = itemAttackNames.length > 0;
+
+  // Get item special attack for a weapon by attack name, or null
+  function getItemAttack(weapon, atkName) {
+    for (const atk of (weapon.item_special_attacks || [])) {
+      if (atk.name === atkName) return atk;
+    }
+    return null;
+  }
+
+  // Roll attack with item special attack bonuses
+  async function rollItemAttack(weapon, weaponIdx, atk) {
+    if (!rollDice) return;
+    if (!checkAmmo(weapon)) return;
+    const range = parseRange(weapon.range);
+    const rangeMod = range ? getRangeMod(weaponIdx) : 0;
+    const rangeName = rangeSelections[weaponIdx] || 'medium';
+    const thac0 = weapon.effective_thac0 - (atk.hit_bonus || 0) + rangeMod;
+    const rangeLabel = range ? `${rangeName} range` : '';
+    await rollDice('1d20', (roll) => {
+      const acHit = thac0 - roll;
+      const suffix = rangeLabel ? ` (${rangeLabel})` : '';
+      return `${atk.name} \u2192 Hits AC ${acHit}${suffix}`;
+    });
+    await decrementAmmo(weapon);
+  }
+
+  // Roll damage with item special attack damage bonus
+  async function rollItemDamage(weapon, atk) {
+    if (!rollDice) return;
+    await rollDice(weapon.damage_dice, (total) => {
+      const baseDmg = total + (weapon.damage_mod || 0) + (atk.damage_bonus || 0);
+      const bonus = (atk.damage_bonus || 0);
+      const bonusStr = bonus ? ` (+${bonus})` : '';
+      return `${atk.name} \u2192 ${baseDmg} damage${bonusStr}`;
+    });
+  }
+
+  // Item ability modifiers for ability score indicators
+  $: itemAbilityMods = character.combat_stats?.item_ability_modifiers ?? {};
+
+  const ABILITY_MOD_LABELS = {
+    strength: 'STR', dexterity: 'DEX', wisdom: 'WIS',
+    intelligence: 'INT', constitution: 'CON', charisma: 'CHA',
+  };
+
   // Union of weapon quality damage names (Brace, Charge) across all equipped weapons
   $: qualityDamageNames = (() => {
     const names = [];
@@ -386,8 +444,9 @@
     return names;
   })();
 
-  $: allDamageSubCols = [...classAttackNames, ...qualityDamageNames];
-  $: hasSubCols = classAttackNames.length > 0 || qualityDamageNames.length > 0;
+  $: allDamageSubCols = [...classAttackNames, ...itemAttackNames, ...qualityDamageNames];
+  $: allThac0SubCols = [...classAttackNames, ...itemAttackNames];
+  $: hasSubCols = classAttackNames.length > 0 || itemAttackNames.length > 0 || qualityDamageNames.length > 0;
 
   // Per-weapon range modifiers (reactive on rangeSelections changes)
   $: rangeModifiers = (character.equipped_weapons || []).map((w, idx) => {
@@ -720,6 +779,7 @@
       <h2 class="section-title">Ability Scores</h2>
       <div class="grid grid-cols-3 gap-3">
         {#each abilities as { key, label }}
+          {@const itemMod = itemAbilityMods[key]}
           <button
             class="text-left cursor-pointer rounded-sm transition-colors hover:bg-parchment-100 h-full w-full"
             disabled={!rollDice}
@@ -732,6 +792,11 @@
               modifiers={getModsForAbility(key)}
               clickable={!!rollDice}
             />
+            {#if itemMod}
+              <div class="text-[10px] text-center text-ink-faint -mt-1">
+                ({itemMod > 0 ? '+' : ''}{itemMod} item)
+              </div>
+            {/if}
           </button>
         {/each}
       </div>
@@ -876,22 +941,28 @@
               <tr class="text-xs text-ink-faint uppercase tracking-wide">
                 <th rowspan="2" class="text-left pb-0.5">Weapon</th>
                 <th rowspan="2" class="text-center pb-0.5">Range</th>
-                {#if classAttackNames.length > 0}
-                  <th colspan={1 + classAttackNames.length} class="text-center pb-0 border-b border-parchment-200">THAC0</th>
+                {#if allThac0SubCols.length > 0}
+                  <th colspan={1 + allThac0SubCols.length} class="text-center pb-0 border-b border-parchment-200">THAC0</th>
                 {:else}
                   <th rowspan="2" class="text-center pb-0.5">THAC0</th>
                 {/if}
                 <th colspan={1 + allDamageSubCols.length} class="text-center pb-0 border-b border-parchment-200">Damage</th>
               </tr>
               <tr class="text-[10px] text-ink-faint tracking-wide">
-                {#if classAttackNames.length > 0}
+                {#if allThac0SubCols.length > 0}
                   <th class="text-center pb-1 font-normal">Normal</th>
                   {#each classAttackNames as atkName}
+                    <th class="text-center pb-1 font-normal">{atkName}</th>
+                  {/each}
+                  {#each itemAttackNames as atkName}
                     <th class="text-center pb-1 font-normal">{atkName}</th>
                   {/each}
                 {/if}
                 <th class="text-center pb-1 font-normal">Normal</th>
                 {#each classAttackNames as atkName}
+                  <th class="text-center pb-1 font-normal">{atkName}</th>
+                {/each}
+                {#each itemAttackNames as atkName}
                   <th class="text-center pb-1 font-normal">{atkName}</th>
                 {/each}
                 {#each qualityDamageNames as qName}
@@ -918,6 +989,9 @@
                 <td class="py-1">
                   <div>
                     <span class="text-ink">{w.name}</span>
+                    {#if w.identified === false}
+                      <Badge label="Unidentified" variant="gm" />
+                    {/if}
                     {#if w.weapon_type === 'thrown'}
                       <span class="text-ink-faint text-xs">(Thrown)</span>
                     {/if}
@@ -991,6 +1065,25 @@
                   </td>
                 {/each}
 
+                <!-- Item attack THAC0 sub-columns -->
+                {#each itemAttackNames as atkName}
+                  {@const iatk = getItemAttack(w, atkName)}
+                  <td class="text-center py-1">
+                    {#if iatk}
+                      <button
+                        class="font-serif text-lg cursor-pointer hover:bg-parchment-100 transition-colors rounded px-1.5 -mx-1"
+                        disabled={!rollDice}
+                        on:click={() => rollItemAttack(w, idx, iatk)}
+                        title={iatk.name}
+                      >
+                        {w.effective_thac0 - (iatk.hit_bonus || 0) + (rangeModifiers[idx] || 0)}
+                      </button>
+                    {:else}
+                      <span class="text-ink-faint">&mdash;</span>
+                    {/if}
+                  </td>
+                {/each}
+
                 <!-- Normal Damage -->
                 <td class="text-center py-1">
                   <button
@@ -1031,6 +1124,28 @@
                           {atk.effect}{#if atk.effect_penalty != null && atk.effect_penalty !== 0} ({atk.effect_penalty}){/if}
                         </div>
                       {/if}
+                    {:else}
+                      <span class="text-ink-faint">&mdash;</span>
+                    {/if}
+                  </td>
+                {/each}
+
+                <!-- Item attack Damage sub-columns -->
+                {#each itemAttackNames as atkName}
+                  {@const iatk = getItemAttack(w, atkName)}
+                  <td class="text-center py-1">
+                    {#if iatk}
+                      <button
+                        class="cursor-pointer hover:bg-parchment-100 transition-colors rounded px-1.5 -mx-1"
+                        disabled={!rollDice}
+                        on:click={() => rollItemDamage(w, iatk)}
+                        title={iatk.name}
+                      >
+                        <span>{w.damage_dice}{#if w.damage_mod > 0}+{w.damage_mod}{:else if w.damage_mod < 0}{w.damage_mod}{/if}</span>
+                        {#if iatk.damage_bonus}
+                          <span class="text-ink-faint"> +{iatk.damage_bonus}</span>
+                        {/if}
+                      </button>
                     {:else}
                       <span class="text-ink-faint">&mdash;</span>
                     {/if}

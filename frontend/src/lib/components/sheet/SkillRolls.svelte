@@ -98,7 +98,28 @@
 
   $: hasTurning = turningEntries.length > 0;
 
-  $: hasSkills = hasThiefSkills || hasAbilitySkills || hasTurning;
+  // --- Item Skills ---
+  $: itemSkills = character.combat_stats?.item_skills ?? [];
+
+  function flattenItemSkills() {
+    const results = [];
+    for (const entry of itemSkills) {
+      for (const [name, roll] of Object.entries(entry.rolls || {})) {
+        results.push({
+          itemName: entry.item_name,
+          name,
+          chance: roll.chance,
+          die: roll.die || 100,
+        });
+      }
+    }
+    return results;
+  }
+
+  $: flatItemSkills = flattenItemSkills();
+  $: hasItemSkills = flatItemSkills.length > 0;
+
+  $: hasSkills = hasThiefSkills || hasAbilitySkills || hasTurning || hasItemSkills;
 </script>
 
 <div class="space-y-6">
@@ -169,6 +190,38 @@
             <span class="font-serif text-xl text-ink leading-tight">
               {roll.die === 100 ? `${roll.chance}%` : `${roll.chance}-in-${roll.die}`}
             </span>
+          </button>
+        {/each}
+      </div>
+    </div>
+  {/if}
+
+  <!-- Item Skills -->
+  {#if hasItemSkills}
+    <div class="panel">
+      <h2 class="section-title">Item Skills</h2>
+      <div class="flex flex-wrap justify-center gap-3">
+        {#each flatItemSkills as roll}
+          <button
+            class="flex flex-col items-center border border-ink-faint rounded-sm bg-parchment-50 p-3 min-w-[120px]
+                   cursor-pointer hover:bg-parchment-100 transition-colors"
+            disabled={!rollDice}
+            on:click={() => {
+              if (!rollDice) return;
+              const target = roll.chance;
+              const dieStr = roll.die === 100 ? '1d100' : `1d${roll.die}`;
+              rollDice(dieStr, (result) =>
+                result <= target
+                  ? `Success! (${result} \u2264 ${target})`
+                  : `Failure! (${result} > ${target})`
+              );
+            }}
+          >
+            <span class="text-sm text-ink-faint uppercase tracking-wide font-sans">{roll.name}</span>
+            <span class="font-serif text-xl text-ink leading-tight">
+              {roll.die === 100 ? `${roll.chance}%` : `${roll.chance}-in-${roll.die}`}
+            </span>
+            <span class="text-[10px] text-ink-faint mt-0.5">{roll.itemName}</span>
           </button>
         {/each}
       </div>

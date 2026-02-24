@@ -1,5 +1,12 @@
 """OSE attribute modifier calculations."""
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from sqlalchemy.orm import Session
+
 
 # ---------------------------------------------------------------------------
 # Lookup tables — all indexed by ability score (keys are ints 3–18)
@@ -132,6 +139,144 @@ def get_class_ability_modifiers(character) -> dict[str, int]:
     return totals
 
 
+def get_equipped_identified_items(character_id: int, db: "Session") -> list[tuple]:
+    """
+    Query equipped + identified items for a character.
+
+    Returns list of (Item, slot) tuples for items where slot IS NOT NULL
+    and identified = true.
+    """
+    from app.models.item import character_items, Item
+
+    rows = db.execute(
+        character_items.select().where(
+            (character_items.c.character_id == character_id)
+            & (character_items.c.slot.isnot(None))
+            & (character_items.c.identified == True)
+        )
+    ).fetchall()
+
+    if not rows:
+        return []
+
+    item_ids = {row.item_id: row.slot for row in rows}
+    items = db.query(Item).filter(Item.id.in_(item_ids.keys())).all()
+    return [(item, item_ids[item.id]) for item in items]
+
+
+def _extract_ability_metadata(item) -> list[dict]:
+    """Extract the ability_metadata array from an item's item_metadata."""
+    meta = item.item_metadata or {}
+    return meta.get("ability_metadata", [])
+
+
+def get_item_ability_modifiers(character_id: int, db: "Session") -> dict[str, int]:
+    """
+    Sum modifier-type ability_metadata entries across equipped+identified items.
+
+    Returns dict keyed by target (e.g. "ac", "dexterity") with summed values.
+    """
+    equipped = get_equipped_identified_items(character_id, db)
+    totals: dict[str, int] = {}
+    for item, _slot in equipped:
+        for entry in _extract_ability_metadata(item):
+            if entry.get("type") != "modifier":
+                continue
+            target = entry.get("target")
+            value = entry.get("value", 0)
+            if target and value:
+                totals[target] = totals.get(target, 0) + value
+    return totals
+
+
+def get_item_round_effects(character_id: int, db: "Session") -> list[dict]:
+    """
+    Return round_effect entries from equipped+identified items.
+
+    Returns [{item_id, item_name, effect, value, description}].
+    """
+    equipped = get_equipped_identified_items(character_id, db)
+    results = []
+    for item, _slot in equipped:
+        for entry in _extract_ability_metadata(item):
+            if entry.get("type") != "round_effect":
+                continue
+            results.append({
+                "item_id": item.id,
+                "item_name": item.name,
+                "effect": entry.get("effect", "hp"),
+                "value": entry.get("value", 0),
+                "description": entry.get("description", ""),
+            })
+    return results
+
+
+def get_item_skills(character_id: int, db: "Session") -> list[dict]:
+    """
+    Return skill entries from equipped+identified items.
+
+    Returns [{item_id, item_name, rolls: {name: {chance, die}}}].
+    """
+    equipped = get_equipped_identified_items(character_id, db)
+    results = []
+    for item, _slot in equipped:
+        for entry in _extract_ability_metadata(item):
+            if entry.get("type") != "skill":
+                continue
+            rolls = entry.get("rolls", {})
+            if rolls:
+                results.append({
+                    "item_id": item.id,
+                    "item_name": item.name,
+                    "rolls": rolls,
+                })
+    return results
+
+
+def get_item_special_attacks(character_id: int, db: "Session") -> list[dict]:
+    """
+    Return special_attack entries from equipped+identified items.
+
+    Returns [{item_id, item_name, attacks: [...]}].
+    """
+    equipped = get_equipped_identified_items(character_id, db)
+    results = []
+    for item, _slot in equipped:
+        for entry in _extract_ability_metadata(item):
+            if entry.get("type") != "special_attack":
+                continue
+            attacks = entry.get("attacks", [])
+            if attacks:
+                results.append({
+                    "item_id": item.id,
+                    "item_name": item.name,
+                    "attacks": attacks,
+                })
+    return results
+
+
+def get_item_auras(character_id: int, db: "Session") -> list[dict]:
+    """
+    Return aura entries from equipped+identified items.
+
+    Returns [{item_id, item_name, description}].
+    """
+    equipped = get_equipped_identified_items(character_id, db)
+    results = []
+    for item, _slot in equipped:
+        for entry in _extract_ability_metadata(item):
+            if entry.get("type") != "aura":
+                continue
+            desc = entry.get("description", "")
+            if desc:
+                results.append({
+                    "item_id": item.id,
+                    "item_name": item.name,
+                    "description": desc,
+                })
+    return results
+
+
 def compute_ac(character, db) -> dict:
     """
     Compute AC, rear_ac, shieldless_ac from equipped items + DEX + class ability modifiers.
@@ -177,14 +322,18 @@ def compute_ac(character, db) -> dict:
     ability_mods = get_class_ability_modifiers(character)
     ac_ability_mod = ability_mods.get("ac", 0)
 
+    # Item ability modifiers (e.g. Ring of Protection)
+    item_mods = get_item_ability_modifiers(character.id, db)
+    ac_item_mod = item_mods.get("ac", 0)
+
     return {
-        "ac": base_ac + dex_mod + shield_bonus + ac_ability_mod,
+        "ac": base_ac + dex_mod + shield_bonus + ac_ability_mod + ac_item_mod,
         "rear_ac": base_ac,
-        "shieldless_ac": base_ac + dex_mod + ac_ability_mod,
+        "shieldless_ac": base_ac + dex_mod + ac_ability_mod + ac_item_mod,
     }
 
 
-def compute_equipped_weapons(character, db) -> list[dict]:
+def compute_equipped_weapons(character, db, is_gm: bool = True) -> list[dict]:
     """
     Compute effective THAC0, damage, and range for each equipped weapon.
 
@@ -193,6 +342,9 @@ def compute_equipped_weapons(character, db) -> list[dict]:
     - Thrown (melee w/ range): THAC0 = base - DEX_missile - hit_bonus; damage += damage_bonus only
     - Ranged: THAC0 = base - DEX_missile - hit_bonus; damage += ammo.damage_bonus only
     - Dual-wield: main-hand +2, off-hand +4 to THAC0
+
+    When is_gm=False, unidentified weapons show their unidentified_name and
+    magical bonuses (hit_bonus, damage_bonus) are zeroed out.
     """
     from app.models.item import character_items, Item
 
@@ -208,6 +360,7 @@ def compute_equipped_weapons(character, db) -> list[dict]:
 
     slot_map = {row.item_id: row.slot for row in rows}
     qty_map = {row.item_id: row.quantity for row in rows}
+    identified_map = {row.item_id: row.identified for row in rows}
     items = db.query(Item).filter(Item.id.in_(slot_map.keys())).all()
     items_by_id = {item.id: item for item in items}
 
@@ -237,6 +390,11 @@ def compute_equipped_weapons(character, db) -> list[dict]:
     missile_thac0_mod = ability_mods.get("missile_thac0", 0)
     melee_thac0_mod = ability_mods.get("melee_thac0", 0)
 
+    # Item ability modifiers (e.g. Gauntlets of Ogre Power)
+    item_mods = get_item_ability_modifiers(character.id, db)
+    missile_thac0_mod += item_mods.get("missile_thac0", 0)
+    melee_thac0_mod += item_mods.get("melee_thac0", 0)
+
     # Dual-wield: both hand slots occupied by weapons
     dual_wield = (
         any(s == "main-hand" for _, s in weapons)
@@ -246,12 +404,19 @@ def compute_equipped_weapons(character, db) -> list[dict]:
     result = []
     for item, slot in weapons:
         meta = item.item_metadata or {}
-        hit_bonus = meta.get("hit_bonus", 0)
-        damage_bonus = meta.get("damage_bonus", 0)
+        weapon_identified = identified_map.get(item.id, False)
+
+        # When player view and weapon is unidentified with an unidentified_name,
+        # mask magical bonuses and qualities
+        mask = not is_gm and not weapon_identified and item.unidentified_name
+        display_name = item.unidentified_name if mask else item.name
+
+        hit_bonus = 0 if mask else meta.get("hit_bonus", 0)
+        damage_bonus = 0 if mask else meta.get("damage_bonus", 0)
         damage_dice = meta.get("damage_dice", "1d6")
         weapon_range = meta.get("range")
         requires_ammo = meta.get("requires_ammo")
-        qualities = meta.get("qualities", [])
+        qualities = [] if mask else meta.get("qualities", [])
 
         # Determine weapon type
         is_ranged = requires_ammo is not None
@@ -276,7 +441,7 @@ def compute_equipped_weapons(character, db) -> list[dict]:
             entry = {
                 "slot": slot,
                 "item_id": item.id,
-                "name": item.name,
+                "name": display_name,
                 "weapon_type": "ranged",
                 "effective_thac0": eff_thac0,
                 "damage_dice": damage_dice,
@@ -284,12 +449,23 @@ def compute_equipped_weapons(character, db) -> list[dict]:
                 "range": weapon_range,
                 "qualities": qualities,
                 "ammo_count": ammo_count,
+                "identified": weapon_identified,
             }
             if dual_wield:
                 entry["dual_wield_penalty"] = penalty
             if ammo_name:
                 entry["ammo_name"] = ammo_name
                 entry["ammo_item_id"] = ammo_item.id
+            # Item special attacks (from weapon's own ability_metadata)
+            if weapon_identified:
+                item_specials = [
+                    e.get("attacks", [])
+                    for e in _extract_ability_metadata(item)
+                    if e.get("type") == "special_attack"
+                ]
+                flat_specials = [a for group in item_specials for a in group]
+                if flat_specials:
+                    entry["item_special_attacks"] = flat_specials
             result.append(entry)
 
         else:
@@ -303,16 +479,27 @@ def compute_equipped_weapons(character, db) -> list[dict]:
             entry = {
                 "slot": slot,
                 "item_id": item.id,
-                "name": item.name,
+                "name": display_name,
                 "weapon_type": "melee",
                 "effective_thac0": eff_thac0,
                 "damage_dice": damage_dice,
                 "damage_mod": total_dmg_mod,
                 "range": "Melee",
                 "qualities": qualities,
+                "identified": weapon_identified,
             }
             if dual_wield:
                 entry["dual_wield_penalty"] = penalty
+            # Item special attacks (from weapon's own ability_metadata)
+            if weapon_identified:
+                item_specials = [
+                    e.get("attacks", [])
+                    for e in _extract_ability_metadata(item)
+                    if e.get("type") == "special_attack"
+                ]
+                flat_specials = [a for group in item_specials for a in group]
+                if flat_specials:
+                    entry["item_special_attacks"] = flat_specials
             result.append(entry)
 
             # Thrown entry (if weapon has range but no requires_ammo)
@@ -321,16 +508,27 @@ def compute_equipped_weapons(character, db) -> list[dict]:
                 entry_thrown = {
                     "slot": slot,
                     "item_id": item.id,
-                    "name": item.name,
+                    "name": display_name,
                     "weapon_type": "thrown",
                     "effective_thac0": thrown_thac0,
                     "damage_dice": damage_dice,
                     "damage_mod": damage_bonus,
                     "range": weapon_range,
                     "qualities": qualities,
+                    "identified": weapon_identified,
                 }
                 if dual_wield:
                     entry_thrown["dual_wield_penalty"] = penalty
+                # Copy item special attacks to thrown entry too
+                if weapon_identified:
+                    item_specials = [
+                        e.get("attacks", [])
+                        for e in _extract_ability_metadata(item)
+                        if e.get("type") == "special_attack"
+                    ]
+                    flat_specials = [a for group in item_specials for a in group]
+                    if flat_specials:
+                        entry_thrown["item_special_attacks"] = flat_specials
                 result.append(entry_thrown)
 
     return result

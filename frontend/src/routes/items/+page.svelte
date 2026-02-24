@@ -46,9 +46,12 @@
     fetchItems();
   }
 
-  // Client-side name filter
+  // Client-side name filter (search both names)
   $: filtered = searchName.trim()
-    ? items.filter(i => i.name.toLowerCase().includes(searchName.toLowerCase()))
+    ? items.filter(i =>
+        i.name.toLowerCase().includes(searchName.toLowerCase()) ||
+        (i.unidentified_name && i.unidentified_name.toLowerCase().includes(searchName.toLowerCase()))
+      )
     : items;
 
   // Group by item_type
@@ -107,7 +110,12 @@
         {#each group.items as item}
           <a href="/items/{item.id}" class="panel hover:shadow-md transition-shadow block">
             <div class="flex items-start justify-between mb-1">
-              <h3 class="font-serif text-lg text-ink">{item.name}</h3>
+              <h3 class="font-serif text-lg text-ink">
+                {item.name}
+                {#if item.unidentified_name}
+                  <span class="text-sm text-ink-faint font-sans">({item.unidentified_name})</span>
+                {/if}
+              </h3>
               <Badge label={itemTypeLabel(item)} variant="default" />
             </div>
             <div class="flex gap-3 text-xs text-ink-faint mb-1">

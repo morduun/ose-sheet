@@ -27,7 +27,16 @@ from app.services.permissions import (
     is_campaign_gm,
     get_user_campaigns,
 )
-from app.services.modifiers import _DEX_AC, _clamp, compute_ac, compute_equipped_weapons
+from app.services.modifiers import (
+    _DEX_AC,
+    _clamp,
+    compute_ac,
+    compute_equipped_weapons,
+    get_item_ability_modifiers,
+    get_item_skills,
+    get_item_auras,
+    get_item_round_effects,
+)
 
 # Spell caster mappings
 CLASS_SPELL_MAP = {
@@ -213,16 +222,40 @@ async def get_character(
     _ = character.character_class
     _ = character.campaign
 
-    # Recompute equipped weapons and AC in-memory (item/class metadata may have changed)
-    fresh_weapons = compute_equipped_weapons(character, db)
-    fresh_ac = compute_ac(character, db)
+    gm_view = is_campaign_gm(current_user, character.campaign)
+
+    # Get item ability modifiers BEFORE detaching (needs DB session)
+    item_mods = get_item_ability_modifiers(character.id, db)
+    item_skills = get_item_skills(character.id, db)
+    item_auras = get_item_auras(character.id, db)
+    item_round_effects = get_item_round_effects(character.id, db)
+
     db.expunge(character)
+
+    # Apply ability score modifiers from items to detached object (clamp 3-18)
+    ability_targets = {"strength", "dexterity", "wisdom", "intelligence", "constitution", "charisma"}
+    applied_item_mods = {}
+    for target, value in item_mods.items():
+        if target in ability_targets:
+            old = getattr(character, target, 10)
+            setattr(character, target, _clamp(old + value))
+            applied_item_mods[target] = value
+        else:
+            applied_item_mods[target] = value
+
+    # Recompute AC and weapons with modified ability scores
+    fresh_ac = compute_ac(character, db)
+    fresh_weapons = compute_equipped_weapons(character, db, is_gm=gm_view)
 
     # Override combat_stats on the detached object — no DB write on GET
     cs = dict(character.combat_stats or {})
     cs["equipped_weapons"] = fresh_weapons
     cs["rear_ac"] = fresh_ac["rear_ac"]
     cs["shieldless_ac"] = fresh_ac["shieldless_ac"]
+    cs["item_ability_modifiers"] = applied_item_mods
+    cs["item_skills"] = item_skills
+    cs["item_auras"] = item_auras
+    cs["item_round_effects"] = item_round_effects
     character.combat_stats = cs
     character.ac = fresh_ac["ac"]
 
@@ -724,6 +757,22 @@ def _item_to_public(item: Item) -> ItemPublic:
     return pub
 
 
+def _item_to_public_masked(item: Item, identified: bool) -> ItemPublic:
+    """Convert an Item to ItemPublic, masking magical stats when unidentified."""
+    pub = _item_to_public(item)
+    if not identified and item.unidentified_name:
+        pub.name = item.unidentified_name
+        pub.unidentified_name = None  # Don't leak real name hint to player
+        if pub.item_metadata:
+            masked = dict(pub.item_metadata)
+            masked.pop("hit_bonus", None)
+            masked.pop("damage_bonus", None)
+            masked.pop("qualities", None)
+            masked.pop("ability_metadata", None)
+            pub.item_metadata = masked
+    return pub
+
+
 class ItemQuantityUpdate(BaseModel):
     """Request body for updating item quantity in inventory."""
     quantity: int = Field(..., ge=0)
@@ -750,14 +799,22 @@ async def get_character_items(
         )
 
     rows = db.execute(
-        select(character_items.c.item_id, character_items.c.quantity, character_items.c.slot)
+        select(
+            character_items.c.item_id,
+            character_items.c.quantity,
+            character_items.c.slot,
+            character_items.c.identified,
+        )
         .where(character_items.c.character_id == character_id)
     ).fetchall()
 
     if not rows:
         return []
 
-    item_info = {row.item_id: {"quantity": row.quantity, "slot": row.slot} for row in rows}
+    item_info = {
+        row.item_id: {"quantity": row.quantity, "slot": row.slot, "identified": row.identified}
+        for row in rows
+    }
     items = db.query(Item).filter(Item.id.in_(item_info.keys())).all()
 
     gm_view = is_campaign_gm(current_user, character.campaign)
@@ -768,15 +825,17 @@ async def get_character_items(
                 item=ItemSchema.model_validate(i),
                 quantity=item_info[i.id]["quantity"],
                 slot=item_info[i.id]["slot"],
+                identified=item_info[i.id]["identified"],
             )
             for i in items
         ]
 
     return [
         CharacterInventoryEntry(
-            item=_item_to_public(i),
+            item=_item_to_public_masked(i, item_info[i.id]["identified"]),
             quantity=item_info[i.id]["quantity"],
             slot=item_info[i.id]["slot"],
+            identified=item_info[i.id]["identified"],
         )
         for i in items
     ]
@@ -834,24 +893,33 @@ async def update_item_quantity(
 def _build_inventory(character_id: int, db: Session) -> list[CharacterInventoryEntry]:
     """Helper to build the full inventory list for a character (player view)."""
     rows = db.execute(
-        select(character_items.c.item_id, character_items.c.quantity, character_items.c.slot)
+        select(
+            character_items.c.item_id,
+            character_items.c.quantity,
+            character_items.c.slot,
+            character_items.c.identified,
+        )
         .where(character_items.c.character_id == character_id)
     ).fetchall()
     if not rows:
         return []
-    item_info = {row.item_id: {"quantity": row.quantity, "slot": row.slot} for row in rows}
+    item_info = {
+        row.item_id: {"quantity": row.quantity, "slot": row.slot, "identified": row.identified}
+        for row in rows
+    }
     items = db.query(Item).filter(Item.id.in_(item_info.keys())).all()
     return [
         CharacterInventoryEntry(
             item=_item_to_public(i),
             quantity=item_info[i.id]["quantity"],
             slot=item_info[i.id]["slot"],
+            identified=item_info[i.id]["identified"],
         )
         for i in items
     ]
 
 
-VALID_SLOTS = {"armor", "shield", "main-hand", "off-hand", "ammo"}
+VALID_SLOTS = {"armor", "shield", "main-hand", "off-hand", "ammo", "worn"}
 
 
 class EquipRequest(BaseModel):
@@ -912,18 +980,23 @@ async def equip_item(
             target_slot = "main-hand"
     elif item.item_type == "ammo":
         target_slot = "ammo"
+    elif item.equippable:
+        # Rings, wondrous items, etc. — "worn" slot (multiple allowed)
+        target_slot = "worn"
     else:
         raise HTTPException(status_code=400, detail=f"Cannot determine equipment slot for item type '{item.item_type}'")
 
     # Auto-unequip any item currently in the target slot
-    db.execute(
-        sa_update(character_items)
-        .where(
-            (character_items.c.character_id == character_id)
-            & (character_items.c.slot == target_slot)
+    # (skip for "worn" — multiple rings/gloves can be worn simultaneously)
+    if target_slot != "worn":
+        db.execute(
+            sa_update(character_items)
+            .where(
+                (character_items.c.character_id == character_id)
+                & (character_items.c.slot == target_slot)
+            )
+            .values(slot=None)
         )
-        .values(slot=None)
-    )
 
     # Set slot on the target item
     db.execute(
@@ -1007,3 +1080,83 @@ async def unequip_item(
     db.commit()
     db.refresh(character)
     return _build_inventory(character_id, db)
+
+
+@router.patch("/{character_id}/items/{item_id}/identify", response_model=CharacterInventoryEntryGM)
+async def identify_item(
+    character_id: int,
+    item_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Mark an item in a character's inventory as identified. GM only."""
+    character = db.query(Character).filter(Character.id == character_id).first()
+    if not character:
+        raise HTTPException(status_code=404, detail=f"Character with id {character_id} not found")
+
+    if not is_campaign_gm(current_user, character.campaign):
+        raise HTTPException(status_code=403, detail="Only the campaign GM can identify items")
+
+    row = db.execute(
+        select(character_items.c.item_id)
+        .where(
+            (character_items.c.character_id == character_id)
+            & (character_items.c.item_id == item_id)
+        )
+    ).first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Item not in character's inventory")
+
+    db.execute(
+        sa_update(character_items)
+        .where(
+            (character_items.c.character_id == character_id)
+            & (character_items.c.item_id == item_id)
+        )
+        .values(identified=True)
+    )
+    db.commit()
+
+    item = db.query(Item).filter(Item.id == item_id).first()
+    info = db.execute(
+        select(character_items.c.quantity, character_items.c.slot, character_items.c.identified)
+        .where(
+            (character_items.c.character_id == character_id)
+            & (character_items.c.item_id == item_id)
+        )
+    ).first()
+
+    return CharacterInventoryEntryGM(
+        item=ItemSchema.model_validate(item),
+        quantity=info.quantity,
+        slot=info.slot,
+        identified=info.identified,
+    )
+
+
+@router.get("/{character_id}/item-abilities")
+async def get_item_abilities(
+    character_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Get grouped item abilities for a character (equipped + identified items only)."""
+    character = db.query(Character).filter(Character.id == character_id).first()
+    if not character:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Character with id {character_id} not found",
+        )
+
+    if not can_view_character(current_user, character):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You don't have access to this character",
+        )
+
+    return {
+        "modifiers": get_item_ability_modifiers(character.id, db),
+        "skills": get_item_skills(character.id, db),
+        "auras": get_item_auras(character.id, db),
+        "round_effects": get_item_round_effects(character.id, db),
+    }

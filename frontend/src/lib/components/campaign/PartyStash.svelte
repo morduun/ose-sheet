@@ -53,7 +53,8 @@
   }
 
   $: filteredItems = availableItems.filter((i) =>
-    i.name.toLowerCase().includes(searchQuery.toLowerCase())
+    i.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    (i.unidentified_name && i.unidentified_name.toLowerCase().includes(searchQuery.toLowerCase()))
   );
 
   async function addToStash(item) {
@@ -141,7 +142,12 @@
       {#each stashItems as entry}
         <div class="flex items-start gap-3 border-b border-parchment-200 pb-2 last:border-0">
           <div class="flex-1 min-w-0">
-            <div class="text-sm text-ink font-medium">{entry.item.name}</div>
+            <div class="text-sm text-ink font-medium">
+              {entry.item.name}
+              {#if entry.item.unidentified_name}
+                <span class="font-normal text-ink-faint">({entry.item.unidentified_name})</span>
+              {/if}
+            </div>
             {#if entry.item.description_player}
               <div class="text-xs text-ink-faint mt-0.5">{entry.item.description_player}</div>
             {/if}
@@ -210,7 +216,12 @@
           on:click={() => addToStash(item)}
           disabled={addingItemId === item.id}
         >
-          <div class="text-sm font-medium text-ink">{item.name}</div>
+          <div class="text-sm font-medium text-ink">
+            {item.name}
+            {#if item.unidentified_name}
+              <span class="font-normal text-ink-faint">({item.unidentified_name})</span>
+            {/if}
+          </div>
           <div class="text-xs text-ink-faint">
             {itemTypeLabel(item)}
             {#if normalizeQualities(item.item_metadata?.qualities).length}
@@ -237,7 +248,12 @@
   {#if takeEntry}
     <div class="space-y-4">
       <div>
-        <div class="text-sm font-medium text-ink">{takeEntry.item.name}</div>
+        <div class="text-sm font-medium text-ink">
+          {takeEntry.item.name}
+          {#if takeEntry.item.unidentified_name}
+            <span class="font-normal text-ink-faint">({takeEntry.item.unidentified_name})</span>
+          {/if}
+        </div>
         <div class="text-xs text-ink-faint">Available: {takeEntry.quantity}</div>
       </div>
       <div>

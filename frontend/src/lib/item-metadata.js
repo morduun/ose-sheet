@@ -59,6 +59,7 @@
  * ----
  *   effect         string                 What the ring does when worn
  *   charges        int | null             Number of uses; null = permanent
+ *   ability_metadata array                Item abilities (see below)
  *
  * wand
  * ----
@@ -69,6 +70,19 @@
  * wondrous
  * --------
  *   effect         string                 Description of the item's magical effect
+ *   ability_metadata array                Item abilities (see below)
+ *
+ * ability_metadata (array, on any item type)
+ * ------------------------------------------
+ * Each entry has a "type" plus type-specific fields:
+ *   modifier:       {type, target, value, condition?}
+ *     target: strength|dexterity|wisdom|intelligence|constitution|charisma|
+ *             ac|missile_thac0|melee_thac0|movement_rate
+ *     value: int
+ *   skill:          {type, rolls: {name: {chance, die}}}
+ *   round_effect:   {type, effect: "hp", value: int, description: string}
+ *   special_attack: {type, attacks: [{name, hit_bonus, damage_bonus}]}
+ *   aura:           {type, description: string}
  *
  * tool
  * ----
@@ -113,6 +127,7 @@ export const ITEM_METADATA_TEMPLATES = {
   ring: {
     effect: '',
     charges: null,
+    ability_metadata: [],
   },
   wand: {
     effect: '',
@@ -121,6 +136,7 @@ export const ITEM_METADATA_TEMPLATES = {
   },
   wondrous: {
     effect: '',
+    ability_metadata: [],
   },
   consumable: {
     effect: '',
@@ -156,6 +172,73 @@ export function normalizeQualities(qualities) {
   if (typeof qualities === 'string') return [qualities];
   return [];
 }
+
+/**
+ * Contextual field reference for item_metadata, keyed by item type.
+ * Each entry is an array of {key, type, description} objects.
+ * Used by ItemForm to show available fields below the JSON editor.
+ */
+export const METADATA_FIELD_REFERENCE = {
+  weapon: [
+    { key: 'damage_dice', type: 'string', desc: 'Dice expression for damage (e.g. "1d8")' },
+    { key: 'hit_bonus', type: 'int', desc: 'Magical bonus to attack rolls' },
+    { key: 'damage_bonus', type: 'int', desc: 'Magical bonus to damage rolls' },
+    { key: 'qualities', type: 'string[]', desc: 'Tags: melee, missile, slow, two-handed, reload, splash, charge, blunt, brace' },
+    { key: 'range', type: 'string', desc: 'Short/medium/long in feet (e.g. "20/40/60"). On melee weapons, implies thrown' },
+    { key: 'requires_ammo', type: 'string', desc: 'Ammo type consumed per shot (e.g. "arrows"); matched against ammo_type' },
+  ],
+  armor: [
+    { key: 'armor_type', type: 'string', desc: '"light", "medium", "heavy", or "shield"' },
+    { key: 'ac', type: 'int', desc: 'Base AC this armor provides (replaces unarmored 9)' },
+    { key: 'ac_bonus', type: 'int', desc: 'Additive AC improvement (shields: -1)' },
+  ],
+  ammo: [
+    { key: 'ammo_type', type: 'string', desc: 'Type key matched against weapon\'s requires_ammo (e.g. "arrows")' },
+    { key: 'damage_bonus', type: 'int', desc: 'Bonus added to ranged weapon damage (magical ammo)' },
+  ],
+  potion: [
+    { key: 'effect', type: 'string', desc: 'What the potion does when consumed' },
+    { key: 'duration', type: 'string', desc: 'How long the effect lasts (e.g. "1d6+1 turns")' },
+  ],
+  scroll: [
+    { key: 'spell_name', type: 'string', desc: 'Name of the spell on the scroll' },
+    { key: 'spell_level', type: 'int', desc: 'Level of the spell' },
+    { key: 'spell_class', type: 'string', desc: 'Casting class: cleric, magic-user, druid, illusionist' },
+  ],
+  ring: [
+    { key: 'effect', type: 'string', desc: 'What the ring does when worn' },
+    { key: 'charges', type: 'int|null', desc: 'Number of uses; null = permanent' },
+  ],
+  wand: [
+    { key: 'effect', type: 'string', desc: 'What the wand does when activated' },
+    { key: 'charges', type: 'int', desc: 'Number of charges remaining (typically 10)' },
+    { key: 'spell_level', type: 'int', desc: 'Level of the spell effect' },
+  ],
+  wondrous: [
+    { key: 'effect', type: 'string', desc: 'Description of the item\'s magical effect' },
+  ],
+  consumable: [
+    { key: 'effect', type: 'string', desc: 'What happens when used' },
+    { key: 'charges', type: 'int', desc: 'Number of uses' },
+    { key: 'qualities', type: 'string[]', desc: 'Tags: "food", "drink", "poison", etc.' },
+    { key: 'save', type: 'int', desc: 'Save-vs-poison target number (poisons)' },
+    { key: 'detection', type: 'int', desc: 'Percent chance of detecting the poison' },
+    { key: 'onset', type: 'string', desc: 'Time until effect (e.g. "1d4+1 rounds")' },
+    { key: 'effect_saved', type: 'string', desc: 'Result on successful save' },
+    { key: 'effect_failed', type: 'string', desc: 'Result on failed save (e.g. "25hp", "Death")' },
+  ],
+  tool: [
+    { key: 'capacity_slots', type: 'int', desc: 'Carrying capacity (backpacks, sacks)' },
+    { key: 'length_feet', type: 'int', desc: 'Length in feet (rope, poles)' },
+    { key: 'light_radius', type: 'int', desc: 'Illumination radius in feet' },
+    { key: 'duration_hours', type: 'number', desc: 'Burn time (torches, lanterns)' },
+    { key: 'duration_days', type: 'int', desc: 'Consumable duration (rations)' },
+  ],
+  treasure: [
+    { key: 'gp_value', type: 'int', desc: 'Appraised value in gold pieces' },
+    { key: 'materials', type: 'string', desc: 'Composition (e.g. "gold and ruby")' },
+  ],
+};
 
 /** Valid weapon qualities with tooltip descriptions. */
 export const WEAPON_QUALITIES = {

@@ -28,7 +28,13 @@ from app.services.permissions import (
     can_assign_item_to_character,
     get_user_campaigns,
 )
-from app.services.modifiers import compute_ac, compute_equipped_weapons
+from app.services.modifiers import (
+    _clamp,
+    compute_ac,
+    compute_equipped_weapons,
+    get_item_ability_modifiers,
+    get_item_round_effects,
+)
 
 router = APIRouter()
 
@@ -602,12 +608,23 @@ async def get_referee_panel(
         .all()
     )
 
+    ability_targets = {"strength", "dexterity", "wisdom", "intelligence", "constitution", "charisma"}
     result = []
     for char in characters:
         _ = char.character_class  # force-load relationship
-        fresh_weapons = compute_equipped_weapons(char, db)
-        fresh_ac = compute_ac(char, db)
+
+        # Get item ability modifiers before detaching
+        item_mods = get_item_ability_modifiers(char.id, db)
         db.expunge(char)
+
+        # Apply ability score modifiers from items
+        for target, value in item_mods.items():
+            if target in ability_targets:
+                old = getattr(char, target, 10)
+                setattr(char, target, _clamp(old + value))
+
+        fresh_ac = compute_ac(char, db)
+        fresh_weapons = compute_equipped_weapons(char, db)
         cs = dict(char.combat_stats or {})
         cs["equipped_weapons"] = fresh_weapons
         cs["rear_ac"] = fresh_ac["rear_ac"]
@@ -617,3 +634,65 @@ async def get_referee_panel(
         result.append(char)
 
     return result
+
+
+@router.post("/{campaign_id}/round-effects")
+async def apply_round_effects(
+    campaign_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Apply round effects (e.g. regeneration) from equipped+identified items
+    to all living characters in the campaign. GM only.
+
+    Returns a log of effects applied.
+    """
+    campaign = _get_campaign_or_404(db, campaign_id)
+    if not is_campaign_gm(current_user, campaign):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only the GM can apply round effects",
+        )
+
+    characters = (
+        db.query(Character)
+        .filter(
+            Character.campaign_id == campaign_id,
+            Character.is_alive == True,
+        )
+        .all()
+    )
+
+    log = []
+    for char in characters:
+        effects = get_item_round_effects(char.id, db)
+        if not effects:
+            continue
+
+        char_effects = []
+        for eff in effects:
+            if eff["effect"] == "hp" and eff["value"] != 0:
+                old_hp = char.hp_current
+                new_hp = max(0, min(char.hp_max, old_hp + eff["value"]))
+                if new_hp != old_hp:
+                    char.hp_current = new_hp
+                    char_effects.append({
+                        "item_name": eff["item_name"],
+                        "effect": eff["effect"],
+                        "value": eff["value"],
+                        "old_hp": old_hp,
+                        "new_hp": new_hp,
+                    })
+
+        if char_effects:
+            log.append({
+                "character_id": char.id,
+                "character_name": char.name,
+                "effects": char_effects,
+            })
+
+    if log:
+        db.commit()
+
+    return log

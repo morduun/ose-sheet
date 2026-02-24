@@ -17,6 +17,7 @@ class ItemBase(BaseModel):
     """Base item schema with common attributes."""
 
     name: str
+    unidentified_name: str | None = None
     item_type: str
     weight: float | None = None
     cost_gp: float | None = None
@@ -38,6 +39,7 @@ class ItemUpdate(BaseModel):
     """Schema for updating an item."""
 
     name: str | None = None
+    unidentified_name: str | None = None
     item_type: str | None = None
     weight: float | None = None
     cost_gp: float | None = None
@@ -65,6 +67,7 @@ class ItemPublic(BaseModel):
 
     id: int
     name: str
+    unidentified_name: str | None = None
     item_type: str
     weight: float | None = None
     cost_gp: float | None = None
@@ -90,6 +93,7 @@ class CharacterInventoryEntry(BaseModel):
     item: ItemPublic
     quantity: int
     slot: str | None = None  # null = carried; "armor" | "shield" | "main-hand" | "off-hand"
+    identified: bool = False
 
 
 class CharacterInventoryEntryGM(BaseModel):
@@ -97,6 +101,7 @@ class CharacterInventoryEntryGM(BaseModel):
     item: Item  # Full Item schema (includes secrets, description_gm)
     quantity: int
     slot: str | None = None
+    identified: bool = False
 
 
 class StashEntry(BaseModel):
