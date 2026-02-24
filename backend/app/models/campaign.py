@@ -38,6 +38,7 @@ class Campaign(Base):
     characters = relationship("Character", back_populates="campaign", cascade="all, delete-orphan")
     items = relationship("Item", back_populates="campaign", cascade="all, delete-orphan")
     character_classes = relationship("CharacterClass", back_populates="campaign", cascade="all, delete-orphan")
+    monsters = relationship("Monster", back_populates="campaign", cascade="all, delete-orphan")
     stash_items = relationship("Item", secondary=campaign_stash, backref="stash_campaigns")
 
     def __init__(self, **kwargs):

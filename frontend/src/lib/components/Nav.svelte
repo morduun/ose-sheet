@@ -26,6 +26,9 @@
       <a href="/items" class="text-sm text-parchment-200 hover:text-parchment-50 transition-colors">
         Items
       </a>
+      <a href="/monsters" class="text-sm text-parchment-200 hover:text-parchment-50 transition-colors">
+        Monsters
+      </a>
       <a href="/admin" class="text-sm text-parchment-200 hover:text-parchment-50 transition-colors">
         Admin
       </a>

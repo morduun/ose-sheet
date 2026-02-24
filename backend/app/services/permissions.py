@@ -1,6 +1,6 @@
 """Permission and authorization service for access control."""
 
-from app.models import User, Campaign, Character, Item, CharacterClass
+from app.models import User, Campaign, Character, Item, CharacterClass, Monster
 
 
 def is_admin(user: User) -> bool:
@@ -192,6 +192,29 @@ def can_assign_item_to_character(user: User, character: Character) -> bool:
     """
     return can_edit_character(user, character)
 
+
+
+def can_edit_monster(user: User, monster: Monster) -> bool:
+    """
+    Check if user can edit a monster.
+
+    For default monsters: Admin-only
+    For campaign monsters: Must be campaign GM
+
+    Args:
+        user: User to check
+        monster: Monster to check against
+
+    Returns:
+        True if user can edit the monster, False otherwise
+    """
+    if monster.is_default:
+        return is_admin(user)
+
+    if monster.campaign_id is None:
+        return False
+
+    return is_campaign_gm(user, monster.campaign)
 
 
 def can_edit_character_class(user: User, character_class: CharacterClass) -> bool:

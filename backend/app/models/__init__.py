@@ -5,6 +5,7 @@ from app.models.character_class import CharacterClass
 from app.models.item import Item, character_items, campaign_stash
 from app.models.spell import Spell, character_spellbook
 from app.models.memorized_spell import MemorizedSpell
+from app.models.monster import Monster
 
 __all__ = [
     "User",
@@ -18,4 +19,5 @@ __all__ = [
     "Spell",
     "character_spellbook",
     "MemorizedSpell",
+    "Monster",
 ]

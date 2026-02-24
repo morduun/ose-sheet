@@ -35,6 +35,11 @@ from app.schemas.memorized_spell import (
     CharacterSpellsResponse,
     MemorizeRequest,
 )
+from app.schemas.monster import (
+    Monster as MonsterSchema,
+    MonsterCreate,
+    MonsterUpdate,
+)
 
 __all__ = [
     "User",
@@ -75,4 +80,7 @@ __all__ = [
     "SpellSlotInfo",
     "CharacterSpellsResponse",
     "MemorizeRequest",
+    "MonsterSchema",
+    "MonsterCreate",
+    "MonsterUpdate",
 ]
