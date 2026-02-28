@@ -77,6 +77,14 @@
     });
   }
 
+  async function rollMorale(morale, name) {
+    if (!rollDice || morale == null) return;
+    await rollDice('2d6', (roll) => {
+      const result = roll <= morale ? 'Holds!' : 'Flees!';
+      return `${name} ML ${morale} \u2192 ${result}`;
+    });
+  }
+
   async function rollMonsterDamage(atk, monsterName) {
     if (!rollDice) return;
     const parsed = parseDamage(atk.damage);
@@ -618,6 +626,7 @@
               <th class="text-center pb-2 px-2">THAC0</th>
               <th class="text-left pb-2 px-2">Attacks</th>
               <th class="text-center pb-2 px-2">Move</th>
+              <th class="text-center pb-2 px-2">ML</th>
               <th class="text-left pb-2 px-2 min-w-[180px]">Conditions</th>
               <th class="w-8"></th>
             </tr>
@@ -812,6 +821,20 @@
                     {combatant.data.monster?.movement_rate ?? '?'}
                   {:else}
                     {combatant.data.movement_rate ?? '?'}'
+                  {/if}
+                </td>
+
+                <!-- Morale -->
+                <td class="text-center py-1.5 px-2">
+                  {#if isMonster && combatant.data.monster?.morale != null}
+                    <button
+                      class="rollable"
+                      disabled={!rollDice}
+                      on:click={() => rollMorale(combatant.data.monster.morale, combatant.name)}
+                      title="Roll morale (2d6 vs {combatant.data.monster.morale})"
+                    >{combatant.data.monster.morale}</button>
+                  {:else}
+                    <span class="text-ink-faint">&mdash;</span>
                   {/if}
                 </td>
 
