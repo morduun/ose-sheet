@@ -24,8 +24,14 @@
   let showSlotChoice = false;
   let slotChoiceEntry = null;
 
-  // Currency fields (cp, sp, ep, gp, pp)
-  const currencies = ['cp', 'sp', 'ep', 'gp', 'pp'];
+  // Currency fields
+  const currencies = [
+    { key: 'cp', field: 'copper' },
+    { key: 'sp', field: 'silver' },
+    { key: 'ep', field: 'electrum' },
+    { key: 'gp', field: 'gold' },
+    { key: 'pp', field: 'platinum' },
+  ];
   let currency = {};
   let savingCurrency = false;
 
@@ -39,9 +45,8 @@
 
   onMount(async () => {
     await loadItems();
-    const meta = character.character_metadata ?? {};
     for (const c of currencies) {
-      currency[c] = meta[c] ?? 0;
+      currency[c.key] = character[c.field] ?? 0;
     }
   });
 
@@ -215,9 +220,15 @@
   async function saveCurrency() {
     savingCurrency = true;
     try {
-      const meta = { ...(character.character_metadata ?? {}), ...currency };
-      await api.patch(`/characters/${character.id}`, { character_metadata: meta });
-      character = { ...character, character_metadata: meta };
+      const update = {};
+      for (const c of currencies) {
+        update[c.field] = currency[c.key] ?? 0;
+      }
+      await api.patch(`/characters/${character.id}`, update);
+      for (const c of currencies) {
+        character[c.field] = update[c.field];
+      }
+      character = character;
     } catch (e) {
       alert(e.message);
     } finally {
@@ -255,13 +266,13 @@
     <div class="flex flex-wrap gap-3 items-end">
       {#each currencies as c}
         <div class="flex flex-col items-center">
-          <label class="text-xs text-ink-faint uppercase" for="cur-{c}">{c}</label>
+          <label class="text-xs text-ink-faint uppercase" for="cur-{c.key}">{c.key}</label>
           <input
-            id="cur-{c}"
+            id="cur-{c.key}"
             class="input w-16 text-center"
             type="number"
             min="0"
-            bind:value={currency[c]}
+            bind:value={currency[c.key]}
           />
         </div>
       {/each}
