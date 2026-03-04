@@ -10,18 +10,53 @@ OSE Sheets is a web application for managing characters, campaigns, and party in
 
 ## Features
 
-- **Character sheets** with full OSE stats, saving throws, attribute modifiers, and THAC0
-- **Class system** with auto-populated saves, THAC0, and spell slots from class templates
-- **3D dice rolling** — click any stat, attack roll, or damage roll to throw dice on screen
-- **Spell management** — spellbook, daily memorization, cast/rest cycle with slot tracking
-- **Inventory** — equip/unequip weapons and armor, auto-computed AC, ammo tracking with auto-decrement on attack rolls
-- **Campaign management** — GM creates a campaign, players join via invite code
-- **Permission system** — GMs see everything; players see their own sheets and what the GM reveals
-- **Revealable item secrets** — GMs can attach hidden information to items and reveal it piece by piece as players identify things in-game
-- **Party stash** — shared loot pool that characters can take from or return to
-- **XP and level-up** — GM awards XP, triggers level-ups with automatic stat recalculation
-- **Print-friendly** character sheet view
-- **Default content** — seeded weapons, armor, equipment, and spells from the OSE rules
+### Character Sheets
+- Full OSE stats, saving throws, attribute modifiers, and THAC0
+- Class system with auto-populated saves, THAC0, spell slots, and class skills from templates
+- 3D dice rolling — click any stat, attack roll, or damage roll to throw dice on screen
+- XP tracking with GM-awarded XP and level-up with automatic stat recalculation
+- Print-friendly character sheet view
+
+### Spellcasting
+- Spellbook management for arcane casters, divine casters get full spell access
+- Daily memorization with slot tracking per spell level
+- Cast/rest cycle — mark spells as cast, rest to restore all slots
+
+### Inventory & Equipment
+- Equip/unequip weapons and armor with auto-computed AC (including rear AC, shieldless AC)
+- Weapon table with THAC0, damage, range, and special attack qualities
+- Ammo tracking with auto-decrement on ranged attack rolls
+- Item abilities — rings, wondrous items, and gear can grant attribute modifiers, skill rolls, auras, round effects, and special attacks
+- Revealable item secrets — GMs attach hidden information and reveal it piece by piece as players identify things in-game
+- Currency tracking (cp, sp, ep, gp, pp) with save to character
+
+### Retainers
+- Hire retainers as sub-characters linked to a PC master
+- CHA-based limits on max retainers and base loyalty
+- Loyalty checks via 2d6 dice roll
+- Dismiss retainers to make them independent characters
+
+### Mercenaries
+- 12 OSE mercenary types (archers, footmen, horsemen, crossbowmen, longbowmen, peasants, wolf riders) with per-race costs
+- Hire/dismiss controls with quantity adjustment
+- Wartime toggle doubles all costs
+- Morale checks via 2d6 dice roll
+- Payday button deducts monthly wages from character wealth
+
+### Campaigns & Permissions
+- GMs create campaigns, players join via invite code
+- Permission system — GMs see everything; players see their own sheets and what the GM reveals
+- Party stash — shared loot pool that characters can take from or return to
+
+### Referee Tools
+- **Encounter tracker** — initiative tracking, round management, HP adjustment, condition tracking with turn counters
+- **Combat table** — unified view of PCs, retainers, and monsters with clickable THAC0/damage/morale rolls
+- **Monster bestiary** — full CRUD for campaign-specific and default monsters with stat blocks
+- **Dungeon time tracker** — turn-by-turn tracking with torch/lantern life, ration consumption, custom timers, and event history
+
+### Admin
+- Database backup and restore (server-side and file upload)
+- Default content seeding — classes, items, spells from OSE rules
 
 ## Tech Stack
 
@@ -91,9 +126,14 @@ curl -X POST http://localhost:8000/api/auth/token \
 | `make install` | Install backend + frontend dependencies |
 | `make backend` | Start the API server with hot reload |
 | `make frontend` | Start the frontend dev server |
+| `make dev` | Start both backend and frontend |
 | `make migrate` | Apply database migrations |
+| `make migrate-new` | Create a new migration |
 | `make seed-all` | Seed test user, admin, classes, items, and spells |
 | `make build` | Production build of the frontend |
+| `make backup` | Create a database backup |
+| `make restore FILE=<path>` | Restore from a backup file |
+| `make list-backups` | List available backups |
 | `make db-shell` | Open a SQLite shell to the database |
 
 ## Project Structure
@@ -117,14 +157,14 @@ ose-sheet/
 │   └── package.json
 ├── reference/              # OSE PDFs and screenshots
 ├── Makefile
-└── docs/ROADMAP.md
+└── docs/
 ```
 
 ## Contributing
 
-This is an open project under the MIT license. Contributions are welcome — whether that's adding new character classes, fixing bugs, improving the UI, or adding features from the [roadmap](docs/ROADMAP.md).
+This is an open project under the MIT license. Contributions are welcome — whether that's adding new character classes, fixing bugs, improving the UI, or adding features.
 
-The default content covers the four core B/X classes (Fighter, Cleric, Magic-User, Thief). Adding the demi-human classes (Dwarf, Elf, Halfling) or OSE Advanced classes (Druid, Illusionist, Paladin, Ranger, etc.) is as simple as adding a JSON file to `backend/seed_data/character_classes/` or creating a new Class using the Referee UI.
+The default content covers the four core B/X classes (Fighter, Cleric, Magic-User, Thief). Adding the demi-human classes (Dwarf, Elf, Halfling) or OSE Advanced classes (Druid, Illusionist, Paladin, Ranger, etc.) is as simple as adding a JSON file to `backend/seed_data/character_classes/` or creating a new class using the Referee UI.
 
 ## Legal
 
