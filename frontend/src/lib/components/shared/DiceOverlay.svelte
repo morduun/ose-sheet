@@ -38,9 +38,16 @@
 
     try {
       const total = await rollDice(notation);
-      toastTotal = total;
+      const result = interpretFn ? interpretFn(total) : '';
+      // interpretFn can return a string or {display, text} to override the big number
+      if (result && typeof result === 'object') {
+        toastTotal = result.display ?? total;
+        toastInterpretation = result.text ?? '';
+      } else {
+        toastTotal = total;
+        toastInterpretation = result;
+      }
       toastNotation = notation;
-      toastInterpretation = interpretFn ? interpretFn(total) : '';
       toastVisible = true;
 
       dismissTimer = setTimeout(dismissToast, 4000);

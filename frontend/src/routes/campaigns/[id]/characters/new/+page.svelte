@@ -11,9 +11,11 @@
   import { get } from 'svelte/store';
 
   const campaignId = parseInt($page.params.id);
+  const masterId = $page.url.searchParams.get('master_id');
 
   let classes = [];
   let campaign = null;
+  let masterCharacter = null;
   let loading = true;
   let submitting = false;
   let error = '';
@@ -82,10 +84,15 @@
 
   onMount(async () => {
     try {
-      [classes, campaign] = await Promise.all([
+      const fetches = [
         api.get('/character-classes/'),
         api.get(`/campaigns/${campaignId}`),
-      ]);
+      ];
+      if (masterId) fetches.push(api.get(`/characters/${masterId}`));
+      const results = await Promise.all(fetches);
+      classes = results[0];
+      campaign = results[1];
+      if (masterId && results[2]) masterCharacter = results[2];
       if (classes.length > 0) form.character_class_id = classes[0].id;
     } catch (e) {
       error = e.message;
@@ -166,10 +173,20 @@
         hp_current: parseInt(form.hp_current),
         xp: parseInt(form.xp),
       };
-      if (form.player_id) payload.player_id = parseInt(form.player_id);
-      else delete payload.player_id;
+      if (masterId) {
+        payload.master_id = parseInt(masterId);
+        payload.character_type = 'retainer';
+        delete payload.player_id;
+      } else {
+        if (form.player_id) payload.player_id = parseInt(form.player_id);
+        else delete payload.player_id;
+      }
       const char = await api.post('/characters/', payload);
-      goto(`/characters/${char.id}`);
+      if (masterId) {
+        goto(`/characters/${masterId}`);
+      } else {
+        goto(`/characters/${char.id}`);
+      }
     } catch (e) {
       error = e.message;
       submitting = false;
@@ -181,11 +198,17 @@
   <title>New Character — OSE Sheet</title>
 </svelte:head>
 
-<PageWrapper title="New Character">
+<PageWrapper title={masterId ? 'Hire Retainer' : 'New Character'}>
   {#if loading}
     <p class="text-ink-faint">Loading…</p>
   {:else}
     <div class="panel max-w-2xl">
+      {#if masterCharacter}
+        <div class="mb-4 p-3 rounded border border-blue-300 bg-blue-50 text-blue-900 text-sm">
+          Hiring retainer for <strong>{masterCharacter.name}</strong>
+          (Loyalty: {masterCharacter.modifiers?.charisma?.retainer_loyalty ?? '?'})
+        </div>
+      {/if}
       <div class="grid gap-4 sm:grid-cols-2">
         <!-- Name -->
         <div class="sm:col-span-2">
@@ -219,8 +242,8 @@
           <input id="char-level" class="input w-full" type="number" min="1" max="14" bind:value={form.level} />
         </div>
 
-        <!-- Owner (GM only) -->
-        {#if isGM && campaignMembers.length > 0}
+        <!-- Owner (GM only, not for retainers) -->
+        {#if isGM && campaignMembers.length > 0 && !masterId}
           <div>
             <label class="block text-sm text-ink mb-1" for="char-owner">Owner</label>
             <select id="char-owner" class="input w-full" bind:value={form.player_id}>
@@ -287,9 +310,9 @@
 
       <div class="flex gap-3 mt-6">
         <button class="btn" on:click={submit} disabled={submitting}>
-          {submitting ? 'Creating…' : 'Create Character'}
+          {submitting ? 'Creating…' : masterId ? 'Hire Retainer' : 'Create Character'}
         </button>
-        <a href="/campaigns/{campaignId}" class="btn-ghost">Cancel</a>
+        <a href={masterId ? `/characters/${masterId}` : `/campaigns/${campaignId}`} class="btn-ghost">Cancel</a>
       </div>
     </div>
   {/if}

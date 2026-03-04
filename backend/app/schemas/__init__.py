@@ -6,7 +6,7 @@ from app.schemas.campaign import (
     CampaignWithDetails,
     CampaignJoin,
 )
-from app.schemas.character import Character, CharacterCreate, CharacterUpdate
+from app.schemas.character import Character, CharacterCreate, CharacterUpdate, RetainerSummary
 from app.schemas.character_class import (
     CharacterClass,
     CharacterClassCreate,
@@ -40,6 +40,14 @@ from app.schemas.monster import (
     MonsterCreate,
     MonsterUpdate,
 )
+from app.schemas.mercenary import (
+    MercenaryTypeInfo,
+    MercenaryUnit,
+    MercenaryAddRequest,
+    MercenaryUpdateRequest,
+    MercenarySummary,
+    WartimeRequest,
+)
 
 __all__ = [
     "User",
@@ -54,6 +62,7 @@ __all__ = [
     "Character",
     "CharacterCreate",
     "CharacterUpdate",
+    "RetainerSummary",
     "CharacterClass",
     "CharacterClassCreate",
     "CharacterClassUpdate",
@@ -83,4 +92,10 @@ __all__ = [
     "MonsterSchema",
     "MonsterCreate",
     "MonsterUpdate",
+    "MercenaryTypeInfo",
+    "MercenaryUnit",
+    "MercenaryAddRequest",
+    "MercenaryUpdateRequest",
+    "MercenarySummary",
+    "WartimeRequest",
 ]

@@ -1,5 +1,4 @@
 <script>
-  import { onMount } from 'svelte';
   import { page } from '$app/stores';
   import { api } from '$lib/api.js';
   import { token } from '$lib/stores.js';
@@ -10,15 +9,18 @@
   import Inventory from '$lib/components/sheet/Inventory.svelte';
   import Spells from '$lib/components/sheet/Spells.svelte';
   import Notes from '$lib/components/sheet/Notes.svelte';
+  import Retainers from '$lib/components/sheet/Retainers.svelte';
+  import Mercenaries from '$lib/components/sheet/Mercenaries.svelte';
   import DiceOverlay from '$lib/components/shared/DiceOverlay.svelte';
 
-  const characterId = $page.params.id;
+  $: characterId = $page.params.id;
 
   let character = null;
   let loading = true;
   let error = '';
   let activeTab = 'core';
   let rollDice = null;
+  let loadedId = null;
 
   function getUserId() {
     const t = get(token);
@@ -66,6 +68,7 @@
   })();
 
   $: hasSpells = (character?.character_class?.class_data?.spell_lists?.length ?? 0) > 0;
+  $: isPC = character?.character_type !== 'retainer';
 
   $: tabs = [
     { key: 'core', label: 'Core' },
@@ -73,12 +76,18 @@
     ...(hasSkills ? [{ key: 'skills', label: 'Skills' }] : []),
     { key: 'inventory', label: 'Inventory' },
     ...(hasSpells ? [{ key: 'spells', label: 'Spells' }] : []),
+    ...(isPC ? [{ key: 'retainers', label: 'Retainers' }] : []),
+    ...(isPC ? [{ key: 'mercenaries', label: 'Mercenaries' }] : []),
     { key: 'notes', label: 'Notes' },
   ];
 
-  onMount(async () => {
+  async function loadCharacter(id) {
+    loading = true;
+    error = '';
+    character = null;
+    activeTab = 'core';
     try {
-      character = await api.get(`/characters/${characterId}`);
+      character = await api.get(`/characters/${id}`);
       if (character.campaign_id) {
         try {
           const campaign = await api.get(`/campaigns/${character.campaign_id}`);
@@ -92,7 +101,13 @@
     } finally {
       loading = false;
     }
-  });
+  }
+
+  // Re-fetch when navigating between character pages (same route, different param)
+  $: if (characterId && characterId !== loadedId) {
+    loadedId = characterId;
+    loadCharacter(characterId);
+  }
 
   async function refreshCharacter() {
     try {
@@ -129,6 +144,10 @@
           {character.campaign?.name ?? 'Campaign'}
         </a>
         <span class="mx-1">›</span>
+        {#if character.master_id}
+          <a href="/characters/{character.master_id}" class="hover:text-ink">Master</a>
+          <span class="mx-1">›</span>
+        {/if}
         <span class="text-ink">{character.name}</span>
       </nav>
     {/if}
@@ -156,6 +175,10 @@
       <Inventory bind:character {isGM} on:ac-changed={refreshCharacter} />
     {:else if activeTab === 'spells'}
       <Spells bind:character />
+    {:else if activeTab === 'retainers'}
+      <Retainers bind:character {isGM} {isOwner} {rollDice} />
+    {:else if activeTab === 'mercenaries'}
+      <Mercenaries bind:character {isGM} {isOwner} {rollDice} />
     {:else if activeTab === 'notes'}
       <Notes bind:character />
     {/if}

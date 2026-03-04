@@ -13,6 +13,11 @@ class Character(Base):
     campaign_id = Column(Integer, ForeignKey("campaigns.id", ondelete="CASCADE"), nullable=False)
     player_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
 
+    # Retainer fields
+    master_id = Column(Integer, ForeignKey("characters.id", ondelete="CASCADE"), nullable=True, index=True)
+    character_type = Column(String, default="pc", nullable=False)  # "pc" or "retainer"
+    loyalty = Column(Integer, nullable=True)  # base from master CHA, adjustable
+
     # Basic Info
     name = Column(String, nullable=False)
     character_class_id = Column(Integer, ForeignKey("character_classes.id", ondelete="RESTRICT"), nullable=False)
@@ -67,6 +72,10 @@ class Character(Base):
     campaign = relationship("Campaign", back_populates="characters")
     player = relationship("User", back_populates="characters")
     character_class = relationship("CharacterClass", back_populates="characters")
+
+    # Self-referential retainer relationships
+    master = relationship("Character", remote_side=[id], back_populates="retainers", foreign_keys=[master_id])
+    retainers = relationship("Character", back_populates="master", foreign_keys=[master_id], cascade="all, delete-orphan", lazy="noload")
     items = relationship(
         "Item",
         secondary="character_items",
@@ -81,6 +90,12 @@ class Character(Base):
         "MemorizedSpell",
         back_populates="character",
         cascade="all, delete-orphan",
+    )
+    mercenaries = relationship(
+        "Mercenary",
+        back_populates="character",
+        cascade="all, delete-orphan",
+        lazy="noload",
     )
 
     def __repr__(self):

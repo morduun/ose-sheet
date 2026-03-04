@@ -5,7 +5,7 @@ from sqlalchemy import update as sa_update
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.dependencies import get_current_user
-from app.models import Character, Campaign, CharacterClass, User, Spell, MemorizedSpell, Item
+from app.models import Character, Campaign, CharacterClass, User, Spell, MemorizedSpell, Item, Mercenary
 from app.models.item import character_items
 from app.schemas import (
     Character as CharacterSchema,
@@ -27,8 +27,11 @@ from app.services.permissions import (
     is_campaign_gm,
     get_user_campaigns,
 )
+from app.services.mercenaries import MERCENARY_TYPES, get_unit_cost
 from app.services.modifiers import (
     _DEX_AC,
+    _CHA_MAX_RETAINERS,
+    _CHA_LOYALTY,
     _clamp,
     compute_ac,
     compute_equipped_weapons,
@@ -131,7 +134,53 @@ async def create_character(
             )
         owner_id = character.player_id
 
-    character_data = character.model_dump(exclude={"campaign_id", "player_id"})
+    # --- Retainer validation ---
+    if character.character_type == "retainer":
+        if not character.master_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Retainers must have a master_id",
+            )
+        master = db.query(Character).filter(Character.id == character.master_id).first()
+        if not master:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Master character with id {character.master_id} not found",
+            )
+        if master.campaign_id != character.campaign_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Retainer must be in the same campaign as the master",
+            )
+        if master.character_type != "pc":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Only PCs can have retainers",
+            )
+        if not master.is_alive:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Cannot hire retainers for a fallen character",
+            )
+        # Enforce max retainers from CHA
+        cha = _clamp(master.charisma)
+        max_retainers = _CHA_MAX_RETAINERS[cha]
+        current_retainers = db.query(Character).filter(
+            Character.master_id == master.id,
+            Character.is_alive == True,
+        ).count()
+        if current_retainers >= max_retainers:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"{master.name} already has {current_retainers}/{max_retainers} retainers (CHA {master.charisma})",
+            )
+        # Auto-set loyalty from master CHA if not provided
+        if character.loyalty is None:
+            character.loyalty = _CHA_LOYALTY[cha]
+        # Force retainer owned by same player as master
+        owner_id = master.player_id
+
+    character_data = character.model_dump(exclude={"campaign_id", "player_id", "master_id"})
     level_index = character_data.get("level", 1) - 1
     class_data = char_class.class_data
 
@@ -161,6 +210,7 @@ async def create_character(
         **character_data,
         campaign_id=character.campaign_id,
         player_id=owner_id,
+        master_id=character.master_id,
     )
     db.add(db_character)
     db.commit()
@@ -171,6 +221,7 @@ async def create_character(
 @router.get("/", response_model=list[CharacterSchema])
 async def list_characters(
     campaign_id: int | None = None,
+    include_retainers: bool = False,
     skip: int = 0,
     limit: int = 100,
     db: Session = Depends(get_db),
@@ -192,6 +243,9 @@ async def list_characters(
         # Filter by campaigns user has access to
         user_campaign_ids = get_user_campaigns(current_user)
         query = query.filter(Character.campaign_id.in_(user_campaign_ids))
+
+    if not include_retainers:
+        query = query.filter(Character.character_type == "pc")
 
     characters = query.offset(skip).limit(limit).all()
     return characters
@@ -230,6 +284,53 @@ async def get_character(
     item_auras = get_item_auras(character.id, db)
     item_round_effects = get_item_round_effects(character.id, db)
 
+    # Load retainer summaries for PCs (before detaching)
+    retainer_summaries = []
+    if character.character_type == "pc":
+        retainer_rows = db.query(Character).filter(
+            Character.master_id == character.id,
+            Character.is_alive == True,
+        ).all()
+        retainer_summaries = [
+            {
+                "id": r.id,
+                "name": r.name,
+                "character_class_name": r.character_class.name if r.character_class else None,
+                "level": r.level,
+                "hp_current": r.hp_current,
+                "hp_max": r.hp_max,
+                "ac": r.ac,
+                "loyalty": r.loyalty,
+                "is_alive": r.is_alive,
+            }
+            for r in retainer_rows
+        ]
+
+    # Load mercenary summaries for PCs (before detaching)
+    mercenary_units = []
+    if character.character_type == "pc":
+        merc_rows = db.query(Mercenary).filter(
+            Mercenary.character_id == character.id
+        ).all()
+        for r in merc_rows:
+            info = MERCENARY_TYPES.get(r.merc_type)
+            if not info:
+                continue
+            cost_per = get_unit_cost(r.merc_type, r.race, r.wartime)
+            mercenary_units.append({
+                "id": r.id,
+                "merc_type": r.merc_type,
+                "race": r.race,
+                "quantity": r.quantity,
+                "wartime": r.wartime,
+                "name": info["name"],
+                "ac": info["ac"],
+                "morale": info["morale"],
+                "desc": info["desc"],
+                "cost_per_unit": cost_per,
+                "total_cost": cost_per * r.quantity,
+            })
+
     db.expunge(character)
 
     # Apply ability score modifiers from items to detached object (clamp 3-18)
@@ -258,6 +359,10 @@ async def get_character(
     cs["item_round_effects"] = item_round_effects
     character.combat_stats = cs
     character.ac = fresh_ac["ac"]
+
+    # Attach retainer summaries on detached object
+    character.__dict__["retainers"] = retainer_summaries
+    character.__dict__["mercenaries"] = mercenary_units
 
     return character
 
@@ -340,6 +445,44 @@ async def delete_character(
     db.delete(db_character)
     db.commit()
     return None
+
+
+@router.post("/{character_id}/dismiss", response_model=CharacterSchema)
+async def dismiss_retainer(
+    character_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Dismiss a retainer — unlinks from master, becomes a standalone PC/NPC.
+
+    Can be deleted separately if desired. Permissions: master's owner or campaign GM.
+    """
+    db_character = db.query(Character).filter(Character.id == character_id).first()
+    if not db_character:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Character with id {character_id} not found",
+        )
+
+    if db_character.character_type != "retainer" or db_character.master_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Character is not a retainer",
+        )
+
+    if not can_edit_character(current_user, db_character):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only the character owner or campaign GM can dismiss retainers",
+        )
+
+    db_character.master_id = None
+    db_character.character_type = "pc"
+    db_character.loyalty = None
+    db.commit()
+    db.refresh(db_character)
+    return db_character
 
 
 @router.post("/{character_id}/award-xp", response_model=CharacterSchema)

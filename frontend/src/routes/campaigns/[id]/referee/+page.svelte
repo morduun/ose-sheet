@@ -58,15 +58,17 @@
   // Dice rolling
   let rollDice = null;
 
-  // Parse dice notation from a damage string like "2d6", "1d8+1", "2d6+3"
-  // Returns { notation, extra } where extra is any non-dice remainder
+  // Parse dice notation from a damage string like "2d6", "1d8+1", "2d6+3 + poison"
+  // Returns { dice, mod, extra } — dice is the rollable part, mod is the numeric bonus,
+  // extra is any trailing text (effects, etc.)
   function parseDamage(damage) {
     if (!damage) return null;
-    const match = damage.match(/^(\d+d\d+(?:[+-]\d+)?)(.*)/i);
+    const match = damage.match(/^(\d+d\d+)([+-]\d+)?(.*)/i);
     if (!match) return null;
-    const notation = match[1].trim();
-    const extra = match[2].trim();
-    return { notation, extra };
+    const dice = match[1].trim();
+    const mod = match[2] ? parseInt(match[2]) : 0;
+    const extra = match[3].trim();
+    return { dice, mod, extra };
   }
 
   async function rollMonsterAttack(thac0, monsterName) {
@@ -89,12 +91,12 @@
     if (!rollDice) return;
     const parsed = parseDamage(atk.damage);
     if (!parsed) return;
-    await rollDice(parsed.notation, (total) => {
-      let result = `${monsterName} ${atk.name} \u2192 ${total} damage`;
-      // Append non-dice effects (e.g. " + poison", effects field)
-      if (parsed.extra) result += ` ${parsed.extra}`;
-      if (atk.effects) result += ` + ${atk.effects}`;
-      return result;
+    await rollDice(parsed.dice, (total) => {
+      const dmg = total + parsed.mod;
+      let text = `${monsterName} ${atk.name} \u2192 ${dmg} damage`;
+      if (parsed.extra) text += ` ${parsed.extra}`;
+      if (atk.effects) text += ` + ${atk.effects}`;
+      return { display: dmg, text };
     });
   }
 
@@ -116,6 +118,7 @@
   $: charCombatants = characters.map(c => ({
     id: String(c.id),
     type: 'character',
+    subtype: c.character_type || 'pc',
     name: c.name,
     data: c,
   }));
@@ -335,15 +338,19 @@
 
   // --- Weapons ---
 
-  function formatWeapon(w) {
+  function weaponDamageNotation(w) {
     let dmg = w.damage_dice;
     if (w.damage_mod > 0) dmg += `+${w.damage_mod}`;
     else if (w.damage_mod < 0) dmg += `${w.damage_mod}`;
-    let line = `${w.name}: THAC0 ${w.effective_thac0}, ${dmg}`;
-    if (w.weapon_type === 'ranged' && w.ammo_name) {
-      line += ` (${w.ammo_name}: ${w.ammo_count ?? '?'})`;
-    }
-    return line;
+    return dmg;
+  }
+
+  async function rollCharWeaponDamage(w, charName) {
+    if (!rollDice || !w.damage_dice) return;
+    await rollDice(w.damage_dice, (total) => {
+      const dmg = total + (w.damage_mod || 0);
+      return { display: dmg, text: `${charName} ${w.name} \u2192 ${dmg} damage` };
+    });
   }
 
   // --- Initiative ---
@@ -591,7 +598,11 @@
   <PageWrapper title="Referee Panel" maxWidth="max-w-7xl">
     <!-- Header bar -->
     <div class="flex items-center justify-between mb-4 flex-wrap gap-2">
-      <a href="/campaigns/{campaignId}" class="text-xs text-ink-faint hover:text-ink">&larr; {campaign.name}</a>
+      <div class="flex items-center gap-2">
+        <a href="/campaigns/{campaignId}" class="text-xs text-ink-faint hover:text-ink">&larr; {campaign.name}</a>
+        <span class="text-ink-faint text-xs">|</span>
+        <a href="/campaigns/{campaignId}/referee/dungeon" class="text-xs text-ink-faint hover:text-ink">Dungeon Tracker</a>
+      </div>
 
       <div class="flex items-center gap-3">
         <button class="btn-ghost text-xs" on:click={openAddMonster}>+ Add Monster</button>
@@ -663,6 +674,7 @@
                     </span>
                   {:else}
                     <a href="/characters/{combatant.data.id}" class="text-ink hover:underline font-medium">
+                      {#if combatant.subtype === 'retainer'}<span class="retainer-badge">R</span>{/if}
                       {combatant.name}
                     </a>
                   {/if}
@@ -807,7 +819,22 @@
                   {:else}
                     {#if combatant.data.equipped_weapons?.length}
                       {#each combatant.data.equipped_weapons as w}
-                        <div class="text-xs text-ink leading-snug">{formatWeapon(w)}</div>
+                        <div class="text-xs text-ink leading-snug">
+                          {w.name}:
+                          {#if parseDamage(weaponDamageNotation(w))}
+                            <button
+                              class="rollable-inline"
+                              disabled={!rollDice}
+                              on:click={() => rollCharWeaponDamage(w, combatant.name)}
+                              title="Roll {weaponDamageNotation(w)}"
+                            >{weaponDamageNotation(w)}</button>
+                          {:else}
+                            {weaponDamageNotation(w)}
+                          {/if}
+                          {#if w.weapon_type === 'ranged' && w.ammo_name}
+                            <span class="text-ink-faint">({w.ammo_name}: {w.ammo_count ?? '?'})</span>
+                          {/if}
+                        </div>
                       {/each}
                     {:else}
                       <span class="text-xs text-ink-faint">None</span>
@@ -833,6 +860,13 @@
                       on:click={() => rollMorale(combatant.data.monster.morale, combatant.name)}
                       title="Roll morale (2d6 vs {combatant.data.monster.morale})"
                     >{combatant.data.monster.morale}</button>
+                  {:else if !isMonster && combatant.data.loyalty != null}
+                    <button
+                      class="rollable"
+                      disabled={!rollDice}
+                      on:click={() => rollMorale(combatant.data.loyalty, combatant.name)}
+                      title="Roll loyalty (2d6 vs {combatant.data.loyalty})"
+                    >{combatant.data.loyalty}</button>
                   {:else}
                     <span class="text-ink-faint">&mdash;</span>
                   {/if}
@@ -1009,7 +1043,7 @@
     background-color: rgba(153, 27, 27, 0.08);
   }
 
-  .monster-badge {
+  .monster-badge, .retainer-badge {
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -1019,10 +1053,18 @@
     font-weight: 700;
     line-height: 1;
     border-radius: 0.2rem;
-    background-color: rgba(153, 27, 27, 0.15);
-    color: rgb(153, 27, 27);
     margin-right: 0.25rem;
     vertical-align: middle;
+  }
+
+  .monster-badge {
+    background-color: rgba(153, 27, 27, 0.15);
+    color: rgb(153, 27, 27);
+  }
+
+  .retainer-badge {
+    background-color: rgba(37, 99, 235, 0.15);
+    color: rgb(37, 99, 235);
   }
 
   .monster-name {

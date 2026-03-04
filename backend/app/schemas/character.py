@@ -1,7 +1,22 @@
 from pydantic import BaseModel, Field, computed_field
 from datetime import datetime
 from app.schemas.character_class import CharacterClass as CharacterClassSchema
+from app.schemas.mercenary import MercenaryUnit
 from app.services.modifiers import calculate_modifiers
+
+
+class RetainerSummary(BaseModel):
+    """Compact retainer info for embedding in a PC's response."""
+    id: int
+    name: str
+    character_class_name: str | None = None
+    level: int = 1
+    hp_current: int = 0
+    hp_max: int = 1
+    ac: int = 9
+    loyalty: int | None = None
+    is_alive: bool = True
+    model_config = {"from_attributes": True}
 
 
 class CharacterBase(BaseModel):
@@ -12,6 +27,8 @@ class CharacterBase(BaseModel):
     level: int = 1
     alignment: str | None = None
     xp: int = 0
+    character_type: str = "pc"
+    loyalty: int | None = None
 
     # Attributes
     strength: int = Field(default=10, ge=3, le=18)
@@ -56,6 +73,7 @@ class CharacterCreate(CharacterBase):
 
     campaign_id: int
     player_id: int | None = None  # GM can assign to a player; defaults to current user
+    master_id: int | None = None  # Set when hiring a retainer
 
 
 class CharacterUpdate(BaseModel):
@@ -90,6 +108,7 @@ class CharacterUpdate(BaseModel):
     is_alive: bool | None = None
     notes: str | None = None
     player_id: int | None = None  # GM can reassign character ownership
+    loyalty: int | None = Field(default=None, ge=2, le=12)
 
 
 class Character(CharacterBase):
@@ -98,7 +117,10 @@ class Character(CharacterBase):
     id: int
     campaign_id: int
     player_id: int
+    master_id: int | None = None
     character_class: CharacterClassSchema  # Full class object via relationship
+    retainers: list[RetainerSummary] = []
+    mercenaries: list[MercenaryUnit] = []
     created_at: datetime
     updated_at: datetime | None = None
 
