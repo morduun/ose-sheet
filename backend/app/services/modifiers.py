@@ -277,6 +277,66 @@ def get_item_auras(character_id: int, db: "Session") -> list[dict]:
     return results
 
 
+# ---------------------------------------------------------------------------
+# Encumbrance table — OSE movement rates by total coin weight
+# ---------------------------------------------------------------------------
+
+_ENCUMBRANCE_TABLE = [
+    (400,  120),
+    (600,   90),
+    (800,   60),
+    (1600,  30),
+]
+_MAX_CARRY = 1600
+
+
+def compute_encumbrance(character, db) -> dict:
+    """
+    Compute total encumbrance (in coins) and derived movement rate.
+
+    Sums item.weight * quantity for ALL inventory items plus coin totals.
+    Items with null weight are treated as 0 (weightless until GM assigns).
+    """
+    from app.models.item import character_items, Item
+
+    rows = db.execute(
+        character_items.select().where(
+            character_items.c.character_id == character.id
+        )
+    ).fetchall()
+
+    item_weight = 0
+    if rows:
+        item_ids = {}
+        for row in rows:
+            item_ids.setdefault(row.item_id, 0)
+            item_ids[row.item_id] += row.quantity
+        items = db.query(Item).filter(Item.id.in_(item_ids.keys())).all()
+        for item in items:
+            item_weight += (item.weight or 0) * item_ids[item.id]
+
+    coin_weight = (
+        (character.copper or 0)
+        + (character.silver or 0)
+        + (character.electrum or 0)
+        + (character.gold or 0)
+        + (character.platinum or 0)
+    )
+
+    total = item_weight + coin_weight
+
+    movement = 0
+    for threshold, rate in _ENCUMBRANCE_TABLE:
+        if total <= threshold:
+            movement = rate
+            break
+
+    return {
+        "encumbrance": total,
+        "effective_movement": movement,
+    }
+
+
 def compute_ac(character, db) -> dict:
     """
     Compute AC, rear_ac, shieldless_ac from equipped items + DEX + class ability modifiers.

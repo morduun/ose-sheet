@@ -110,6 +110,8 @@
   $: hpColor = hpPct > 50 ? 'text-green-800' : hpPct > 25 ? 'text-amber-700' : 'text-red-800';
   $: hpBarColor = hpPct > 50 ? 'bg-green-800' : hpPct > 25 ? 'bg-amber-700' : 'bg-red-800';
 
+  $: effectiveMove = character.combat_stats?.effective_movement ?? character.movement_rate;
+
   async function applyHPDelta(delta) {
     if (!delta || savingHP) return;
     savingHP = true;
@@ -940,8 +942,8 @@
       <!-- Column 4: Movement -->
       <div class="text-center">
         <div class="text-xs text-ink-faint uppercase tracking-wide mb-0.5">Movement</div>
-        <div class="font-serif text-4xl text-ink leading-none">{character.movement_rate ?? '?'}</div>
-        <div class="text-xs text-ink-faint mt-1">ft/turn</div>
+        <div class="font-serif text-4xl text-ink leading-none">{effectiveMove != null ? `${effectiveMove}'` : '?'}</div>
+        <div class="text-xs text-ink-faint mt-1">{effectiveMove != null ? `(${Math.floor(effectiveMove / 3)}')` : ''} / round</div>
       </div>
     </div>
 

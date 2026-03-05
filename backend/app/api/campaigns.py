@@ -31,6 +31,7 @@ from app.services.permissions import (
 from app.services.modifiers import (
     _clamp,
     compute_ac,
+    compute_encumbrance,
     compute_equipped_weapons,
     get_item_ability_modifiers,
     get_item_round_effects,
@@ -629,6 +630,9 @@ async def get_referee_panel(
         cs["equipped_weapons"] = fresh_weapons
         cs["rear_ac"] = fresh_ac["rear_ac"]
         cs["shieldless_ac"] = fresh_ac["shieldless_ac"]
+        enc = compute_encumbrance(char, db)
+        cs["encumbrance"] = enc["encumbrance"]
+        cs["effective_movement"] = enc["effective_movement"]
         char.combat_stats = cs
         char.ac = fresh_ac["ac"]
         result.append(char)

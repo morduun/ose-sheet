@@ -847,7 +847,8 @@
                   {#if isMonster}
                     {combatant.data.monster?.movement_rate ?? '?'}
                   {:else}
-                    {combatant.data.movement_rate ?? '?'}'
+                    {@const mv = combatant.data.combat_stats?.effective_movement ?? combatant.data.movement_rate}
+                    {mv != null ? `${mv}' (${Math.floor(mv / 3)}')` : '?'}
                   {/if}
                 </td>
 

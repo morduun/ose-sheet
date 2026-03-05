@@ -35,6 +35,18 @@
   let currency = {};
   let savingCurrency = false;
 
+  // Encumbrance
+  const MAX_CARRY = 1600;
+  const ENC_TABLE = [
+    [400, 120], [600, 90], [800, 60], [1600, 30],
+  ];
+  $: itemWeight = items.reduce((sum, e) => sum + ((e.item?.weight ?? 0) * e.quantity), 0);
+  $: coinWeight = (character.copper ?? 0) + (character.silver ?? 0)
+    + (character.electrum ?? 0) + (character.gold ?? 0) + (character.platinum ?? 0);
+  $: encumbrance = Math.round(itemWeight + coinWeight);
+  $: encMovement = ENC_TABLE.find(([t]) => encumbrance <= t)?.[1] ?? 0;
+  $: encPct = Math.min(100, (encumbrance / MAX_CARRY) * 100);
+
   const slotLabels = {
     'armor': 'Armor',
     'shield': 'Shield',
@@ -284,9 +296,27 @@
 
   <!-- Inventory list -->
   <div class="panel">
-    <div class="flex items-center justify-between mb-4">
+    <div class="flex items-center justify-between mb-2">
       <h2 class="section-title mb-0 border-none">Inventory</h2>
       <button class="btn text-xs" on:click={openAddModal}>+ Add Item</button>
+    </div>
+
+    <!-- Encumbrance bar -->
+    <div class="mb-4">
+      <div class="flex justify-between text-xs text-ink-faint mb-1">
+        <span>Encumbrance: <span class="text-ink font-medium">{encumbrance}</span> / {MAX_CARRY} coins</span>
+        <span>Move: <span class="text-ink font-medium">{encMovement}' ({Math.floor(encMovement / 3)}')</span></span>
+      </div>
+      <div class="w-full h-2 bg-parchment-200 rounded overflow-hidden">
+        <div
+          class="h-full rounded transition-all duration-300"
+          class:bg-green-600={encPct <= 25}
+          class:bg-yellow-600={encPct > 25 && encPct <= 50}
+          class:bg-orange-600={encPct > 50 && encPct <= 75}
+          class:bg-red-700={encPct > 75}
+          style="width: {encPct}%"
+        ></div>
+      </div>
     </div>
 
     {#if loading}

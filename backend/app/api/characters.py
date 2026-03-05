@@ -35,6 +35,7 @@ from app.services.modifiers import (
     _CHA_LOYALTY,
     _clamp,
     compute_ac,
+    compute_encumbrance,
     compute_equipped_weapons,
     get_item_ability_modifiers,
     get_item_skills,
@@ -358,6 +359,9 @@ async def get_character(
     cs["item_skills"] = item_skills
     cs["item_auras"] = item_auras
     cs["item_round_effects"] = item_round_effects
+    enc = compute_encumbrance(character, db)
+    cs["encumbrance"] = enc["encumbrance"]
+    cs["effective_movement"] = enc["effective_movement"]
     character.combat_stats = cs
     character.ac = fresh_ac["ac"]
 
