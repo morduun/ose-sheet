@@ -510,6 +510,7 @@ def compute_equipped_weapons(character, db, is_gm: bool = True) -> list[dict]:
                 "qualities": qualities,
                 "ammo_count": ammo_count,
                 "identified": weapon_identified,
+                "unidentified_name": item.unidentified_name,
             }
             if dual_wield:
                 entry["dual_wield_penalty"] = penalty
@@ -547,6 +548,7 @@ def compute_equipped_weapons(character, db, is_gm: bool = True) -> list[dict]:
                 "range": "Melee",
                 "qualities": qualities,
                 "identified": weapon_identified,
+                "unidentified_name": item.unidentified_name,
             }
             if dual_wield:
                 entry["dual_wield_penalty"] = penalty
@@ -576,6 +578,7 @@ def compute_equipped_weapons(character, db, is_gm: bool = True) -> list[dict]:
                     "range": weapon_range,
                     "qualities": qualities,
                     "identified": weapon_identified,
+                    "unidentified_name": item.unidentified_name,
                 }
                 if dual_wield:
                     entry_thrown["dual_wield_penalty"] = penalty

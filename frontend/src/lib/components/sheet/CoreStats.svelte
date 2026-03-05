@@ -1008,7 +1008,7 @@
                 <td class="py-1">
                   <div>
                     <span class="text-ink">{w.name}</span>
-                    {#if w.identified === false}
+                    {#if !w.identified && w.unidentified_name}
                       <Badge label="Unidentified" variant="gm" />
                     {/if}
                     {#if w.weapon_type === 'thrown'}
