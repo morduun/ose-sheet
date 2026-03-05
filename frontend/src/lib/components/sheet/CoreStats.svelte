@@ -341,19 +341,30 @@
     }
   }
 
-  async function toggleAlive() {
+  async function setStatus(newStatus) {
     togglingAlive = true;
     error = '';
     try {
       const updated = await api.patch(`/characters/${character.id}`, {
-        is_alive: !character.is_alive
+        status: newStatus,
       });
-      character = { ...character, is_alive: updated.is_alive };
+      character = { ...character, status: updated.status, is_alive: updated.is_alive };
       confirmFallen = false;
     } catch (e) {
       error = e.message;
     } finally {
       togglingAlive = false;
+    }
+  }
+
+  function handleStatusChange(e) {
+    const newStatus = e.target.value;
+    if (newStatus === 'fallen' && character.status !== 'fallen') {
+      confirmFallen = true;
+      // Reset select to current value — only apply after confirmation
+      e.target.value = character.status || 'active';
+    } else {
+      setStatus(newStatus);
     }
   }
 
@@ -530,11 +541,15 @@
   }
 </script>
 
-<div class="space-y-6" class:opacity-75={character.is_alive === false}>
+<div class="space-y-6" class:opacity-75={character.status === 'fallen'}>
   <!-- Fallen banner -->
-  {#if character.is_alive === false}
+  {#if character.status === 'fallen'}
     <div class="text-center py-2 bg-red-900/10 border border-red-900/30 rounded">
-      <span class="font-serif text-lg tracking-widest uppercase text-red-900/70">☠ FALLEN ☠</span>
+      <span class="font-serif text-lg tracking-widest uppercase text-red-900/70">FALLEN</span>
+    </div>
+  {:else if character.status === 'independent'}
+    <div class="text-center py-2 bg-ink/5 border border-ink/20 rounded">
+      <span class="font-serif text-sm tracking-widest uppercase text-ink-faint">Acting Independently</span>
     </div>
   {/if}
 
@@ -555,27 +570,29 @@
         Print
       </button>
       {#if isGM || isOwner}
-        {#if character.is_alive === false}
-          <button class="btn-ghost text-xs" on:click={() => (confirmFallen = true)}>
-            Resurrect
-          </button>
-        {:else}
-          <button class="btn-danger text-xs" on:click={() => (confirmFallen = true)}>
-            Mark as Fallen
-          </button>
+        <select
+          class="input text-xs py-1 px-2 w-auto"
+          value={character.status || 'active'}
+          on:change={handleStatusChange}
+        >
+          <option value="active">Active</option>
+          <option value="independent">Independent</option>
+          <option value="fallen">Fallen</option>
+        </select>
+      {:else}
+        {#if character.status === 'independent'}
+          <span class="text-[10px] px-1.5 py-0.5 rounded bg-ink/10 text-ink-faint uppercase tracking-wide font-medium">Independent</span>
+        {:else if character.status === 'fallen'}
+          <span class="text-[10px] px-1.5 py-0.5 rounded bg-red-900/20 text-red-900 uppercase tracking-wide font-medium">Fallen</span>
         {/if}
       {/if}
     </div>
   </div>
 
-  <!-- Confirm fallen/resurrect modal -->
-  <Modal bind:open={confirmFallen} title={character.is_alive === false ? 'Resurrect Character' : 'Mark as Fallen'}>
+  <!-- Confirm fallen modal -->
+  <Modal bind:open={confirmFallen} title="Mark as Fallen">
     <p class="text-sm text-ink mb-4">
-      {#if character.is_alive === false}
-        Resurrect <strong>{character.name}</strong>? They will return to the active roster.
-      {:else}
-        Mark <strong>{character.name}</strong> as fallen? They will be moved to the campaign graveyard.
-      {/if}
+      Mark <strong>{character.name}</strong> as fallen? They will be moved to the campaign graveyard.
     </p>
     {#if error}
       <p class="text-sm text-red-700 mb-3">{error}</p>
@@ -583,11 +600,11 @@
     <div class="flex gap-2 justify-end">
       <button class="btn-ghost text-xs" on:click={() => (confirmFallen = false)}>Cancel</button>
       <button
-        class={character.is_alive === false ? 'btn text-xs' : 'btn-danger text-xs'}
+        class="btn-danger text-xs"
         disabled={togglingAlive}
-        on:click={toggleAlive}
+        on:click={() => setStatus('fallen')}
       >
-        {togglingAlive ? 'Saving…' : character.is_alive === false ? 'Resurrect' : 'Confirm'}
+        {togglingAlive ? 'Saving…' : 'Confirm'}
       </button>
     </div>
   </Modal>

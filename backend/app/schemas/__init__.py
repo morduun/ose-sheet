@@ -48,6 +48,13 @@ from app.schemas.mercenary import (
     MercenarySummary,
     WartimeRequest,
 )
+from app.schemas.specialist import (
+    SpecialistTypeInfo,
+    SpecialistEntry,
+    SpecialistAddRequest,
+    SpecialistUpdateRequest,
+    SpecialistSummary,
+)
 
 __all__ = [
     "User",
@@ -98,4 +105,9 @@ __all__ = [
     "MercenaryUpdateRequest",
     "MercenarySummary",
     "WartimeRequest",
+    "SpecialistTypeInfo",
+    "SpecialistEntry",
+    "SpecialistAddRequest",
+    "SpecialistUpdateRequest",
+    "SpecialistSummary",
 ]

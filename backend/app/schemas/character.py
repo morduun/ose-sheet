@@ -2,6 +2,7 @@ from pydantic import BaseModel, Field, computed_field
 from datetime import datetime
 from app.schemas.character_class import CharacterClass as CharacterClassSchema
 from app.schemas.mercenary import MercenaryUnit
+from app.schemas.specialist import SpecialistEntry
 from app.services.modifiers import calculate_modifiers
 
 
@@ -16,6 +17,7 @@ class RetainerSummary(BaseModel):
     ac: int = 9
     loyalty: int | None = None
     is_alive: bool = True
+    status: str = "active"
     model_config = {"from_attributes": True}
 
 
@@ -62,6 +64,7 @@ class CharacterBase(BaseModel):
     platinum: int = Field(default=0, ge=0)
 
     # State
+    status: str = "active"
     is_alive: bool = True
 
     # Notes
@@ -105,6 +108,7 @@ class CharacterUpdate(BaseModel):
     gold: int | None = Field(default=None, ge=0)
     platinum: int | None = Field(default=None, ge=0)
 
+    status: str | None = None
     is_alive: bool | None = None
     notes: str | None = None
     player_id: int | None = None  # GM can reassign character ownership
@@ -121,6 +125,7 @@ class Character(CharacterBase):
     character_class: CharacterClassSchema  # Full class object via relationship
     retainers: list[RetainerSummary] = []
     mercenaries: list[MercenaryUnit] = []
+    specialists: list[SpecialistEntry] = []
     created_at: datetime
     updated_at: datetime | None = None
 

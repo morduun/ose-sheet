@@ -59,6 +59,7 @@ class Character(Base):
     platinum = Column(Integer, default=0)
 
     # Character State
+    status = Column(String, default="active", nullable=False, server_default="active")  # "active", "independent", "fallen"
     is_alive = Column(Boolean, default=True)
 
     # Additional Notes
@@ -93,6 +94,12 @@ class Character(Base):
     )
     mercenaries = relationship(
         "Mercenary",
+        back_populates="character",
+        cascade="all, delete-orphan",
+        lazy="noload",
+    )
+    specialists = relationship(
+        "Specialist",
         back_populates="character",
         cascade="all, delete-orphan",
         lazy="noload",

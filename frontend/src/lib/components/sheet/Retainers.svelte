@@ -1,5 +1,6 @@
 <script>
   import { api } from '$lib/api.js';
+  import Modal from '$lib/components/shared/Modal.svelte';
 
   export let character;
   export let isGM = false;
@@ -7,6 +8,10 @@
   export let rollDice = null;
 
   let dismissing = null;
+  let showHireModal = false;
+  let independentPool = [];
+  let loadingPool = false;
+  let rehiring = null;
 
   $: retainers = character?.retainers ?? [];
   $: maxRetainers = character?.modifiers?.charisma?.max_retainers ?? 4;
@@ -45,6 +50,40 @@
       dismissing = null;
     }
   }
+
+  async function openHireModal() {
+    showHireModal = true;
+    loadingPool = true;
+    try {
+      const all = await api.get(`/characters/?campaign_id=${character.campaign_id}&include_retainers=true`);
+      independentPool = all.filter(c => c.status === 'independent');
+    } catch (e) {
+      independentPool = [];
+    } finally {
+      loadingPool = false;
+    }
+  }
+
+  async function rehire(indChar) {
+    rehiring = indChar.id;
+    try {
+      await api.post(`/characters/${indChar.id}/rehire`, {
+        master_id: character.id,
+      });
+      // Refresh the whole character to get updated retainer list
+      const updated = await api.get(`/characters/${character.id}`);
+      character = updated;
+      independentPool = independentPool.filter(c => c.id !== indChar.id);
+      // Close modal if no more room or pool empty
+      if (retainers.length >= maxRetainers || independentPool.length === 0) {
+        showHireModal = false;
+      }
+    } catch (e) {
+      alert(e.message || 'Failed to rehire');
+    } finally {
+      rehiring = null;
+    }
+  }
 </script>
 
 <div>
@@ -54,12 +93,9 @@
       Retainers ({retainers.length} / {maxRetainers})
     </h2>
     {#if canHire}
-      <a
-        href="/campaigns/{character.campaign_id}/characters/new?master_id={character.id}"
-        class="btn text-sm"
-      >
+      <button class="btn text-sm" on:click={openHireModal}>
         + Hire Retainer
-      </a>
+      </button>
     {/if}
   </div>
 
@@ -137,4 +173,43 @@
       {/each}
     </div>
   {/if}
+
+  <!-- Hire Retainer Modal -->
+  <Modal bind:open={showHireModal} title="Hire Retainer">
+    {#if loadingPool}
+      <p class="text-sm text-ink-faint">Loading...</p>
+    {:else}
+      {#if independentPool.length > 0}
+        <p class="text-xs text-ink-faint mb-3">Rehire a former companion:</p>
+        <div class="space-y-2 mb-4">
+          {#each independentPool as ind (ind.id)}
+            <div class="panel flex items-center justify-between py-2 px-3">
+              <div>
+                <span class="font-medium text-ink text-sm">{ind.name}</span>
+                <span class="text-xs text-ink-faint ml-1">
+                  {ind.character_class?.name ?? 'Unknown'} {ind.level}
+                </span>
+              </div>
+              <button
+                class="btn text-xs"
+                disabled={rehiring === ind.id}
+                on:click={() => rehire(ind)}
+              >
+                {rehiring === ind.id ? 'Rehiring...' : 'Rehire'}
+              </button>
+            </div>
+          {/each}
+        </div>
+        <hr class="border-ink-faint/20 mb-4" />
+      {/if}
+      <div class="text-center">
+        <a
+          href="/campaigns/{character.campaign_id}/characters/new?master_id={character.id}"
+          class="btn text-sm inline-block"
+        >
+          Create New Retainer
+        </a>
+      </div>
+    {/if}
+  </Modal>
 </div>

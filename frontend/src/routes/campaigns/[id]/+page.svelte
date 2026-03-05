@@ -20,8 +20,9 @@
   let graveyardOpen = true;
   let activeTab = 'adventurers';
 
-  $: livingCharacters = characters.filter(c => c.is_alive !== false);
-  $: fallenCharacters = characters.filter(c => c.is_alive === false);
+  $: activeCharacters = characters.filter(c => c.status === 'active' || (!c.status && c.is_alive !== false));
+  $: independentCharacters = characters.filter(c => c.status === 'independent');
+  $: fallenCharacters = characters.filter(c => c.status === 'fallen' || (!c.status && c.is_alive === false));
 
   function getUserId() {
     const t = get(token);
@@ -35,7 +36,7 @@
   }
 
   $: isGM = campaign && userId && campaign.gm_id === userId;
-  $: myCharacters = isGM ? livingCharacters : livingCharacters.filter(c => c.player_id === userId);
+  $: myCharacters = isGM ? activeCharacters : activeCharacters.filter(c => c.player_id === userId);
 
   onMount(async () => {
     userId = getUserId();
@@ -116,16 +117,16 @@
         <a href="/campaigns/{campaignId}/characters/new" class="btn">+ New Character</a>
       </div>
 
-      {#if livingCharacters.length === 0}
+      {#if activeCharacters.length === 0}
         <div class="panel text-center py-6">
           <p class="text-ink-faint text-sm mb-3">
-            {fallenCharacters.length > 0 ? 'No living characters remain.' : 'No characters yet.'}
+            {fallenCharacters.length > 0 ? 'No active characters remain.' : 'No characters yet.'}
           </p>
           <a href="/campaigns/{campaignId}/characters/new" class="btn">Create a Character</a>
         </div>
       {:else}
         <div class="grid gap-3 sm:grid-cols-2">
-          {#each livingCharacters as char}
+          {#each activeCharacters as char}
             <a href="/characters/{char.id}" class="panel hover:bg-parchment-100 transition-colors block">
               <div class="flex items-start justify-between">
                 <div>
@@ -146,6 +147,38 @@
         </div>
       {/if}
 
+      <!-- Acting Independently -->
+      {#if independentCharacters.length > 0}
+        <details class="mt-6">
+          <summary class="text-sm text-ink-faint cursor-pointer hover:text-ink select-none">
+            Acting Independently ({independentCharacters.length})
+          </summary>
+          <div class="grid gap-3 sm:grid-cols-2 mt-3">
+            {#each independentCharacters as char}
+              <a
+                href="/characters/{char.id}"
+                class="panel hover:bg-parchment-100 transition-colors block opacity-75 border-l-4 border-ink-faint/30"
+              >
+                <div class="flex items-start justify-between">
+                  <div>
+                    <h3 class="font-serif text-lg text-ink">{char.name}</h3>
+                    <p class="text-xs text-ink-faint mt-0.5">
+                      {char.character_class?.name ?? 'Unknown Class'} · Level {char.level}
+                    </p>
+                  </div>
+                  <span class="text-[10px] px-1.5 py-0.5 rounded bg-ink/10 text-ink-faint uppercase tracking-wide font-medium">Independent</span>
+                </div>
+                <div class="flex gap-4 mt-2 text-xs text-ink-light">
+                  <span>HP {char.hp_current ?? '?'}/{char.hp_max ?? '?'}</span>
+                  <span>AC {char.ac ?? '?'}</span>
+                  <span>XP {char.xp ?? 0}</span>
+                </div>
+              </a>
+            {/each}
+          </div>
+        </details>
+      {/if}
+
       <!-- Graveyard — Fallen Characters -->
       {#if fallenCharacters.length > 0}
         <div class="mt-8">
@@ -153,7 +186,7 @@
             class="flex items-center gap-2 w-full text-left mb-4"
             on:click={() => (graveyardOpen = !graveyardOpen)}
           >
-            <span class="section-title mb-0 border-none text-ink-faint">☠ The Fallen</span>
+            <span class="section-title mb-0 border-none text-ink-faint">The Fallen</span>
             <span class="text-xs text-ink-faint">{graveyardOpen ? '▾' : '▸'}</span>
             <span class="text-xs text-ink-faint">({fallenCharacters.length})</span>
           </button>

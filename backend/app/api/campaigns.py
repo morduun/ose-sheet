@@ -603,7 +603,7 @@ async def get_referee_panel(
         db.query(Character)
         .filter(
             Character.campaign_id == campaign_id,
-            Character.is_alive == True,
+            Character.status == "active",
         )
         .all()
     )
@@ -659,7 +659,7 @@ async def apply_round_effects(
         db.query(Character)
         .filter(
             Character.campaign_id == campaign_id,
-            Character.is_alive == True,
+            Character.status == "active",
         )
         .all()
     )

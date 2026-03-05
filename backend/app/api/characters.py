@@ -5,7 +5,7 @@ from sqlalchemy import update as sa_update
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.dependencies import get_current_user
-from app.models import Character, Campaign, CharacterClass, User, Spell, MemorizedSpell, Item, Mercenary
+from app.models import Character, Campaign, CharacterClass, User, Spell, MemorizedSpell, Item, Mercenary, Specialist
 from app.models.item import character_items
 from app.schemas import (
     Character as CharacterSchema,
@@ -28,6 +28,7 @@ from app.services.permissions import (
     get_user_campaigns,
 )
 from app.services.mercenaries import MERCENARY_TYPES, get_unit_cost
+from app.services.specialists import SPECIALIST_TYPES
 from app.services.modifiers import (
     _DEX_AC,
     _CHA_MAX_RETAINERS,
@@ -167,7 +168,7 @@ async def create_character(
         max_retainers = _CHA_MAX_RETAINERS[cha]
         current_retainers = db.query(Character).filter(
             Character.master_id == master.id,
-            Character.is_alive == True,
+            Character.status != "fallen",
         ).count()
         if current_retainers >= max_retainers:
             raise HTTPException(
@@ -360,9 +361,28 @@ async def get_character(
     character.combat_stats = cs
     character.ac = fresh_ac["ac"]
 
+    # Load specialist entries for PCs (before returning)
+    specialist_entries = []
+    if character.character_type == "pc":
+        spec_rows = db.query(Specialist).filter(
+            Specialist.character_id == character.id
+        ).all()
+        for r in spec_rows:
+            info = SPECIALIST_TYPES.get(r.spec_type)
+            if not info:
+                continue
+            specialist_entries.append({
+                "id": r.id,
+                "spec_type": r.spec_type,
+                "task": r.task,
+                "name": info["name"],
+                "wage": info["wage"],
+            })
+
     # Attach retainer summaries on detached object
     character.__dict__["retainers"] = retainer_summaries
     character.__dict__["mercenaries"] = mercenary_units
+    character.__dict__["specialists"] = specialist_entries
 
     return character
 
@@ -406,6 +426,21 @@ async def update_character(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Target player is not a member of this campaign",
             )
+
+    # Status/is_alive sync
+    if "status" in update_data:
+        s = update_data["status"]
+        if s not in ("active", "independent", "fallen"):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid status value. Must be 'active', 'independent', or 'fallen'.",
+            )
+        update_data["is_alive"] = (s != "fallen")
+    elif "is_alive" in update_data:
+        if not update_data["is_alive"]:
+            update_data["status"] = "fallen"
+        elif db_character.status == "fallen":
+            update_data["status"] = "active"
 
     for field, value in update_data.items():
         setattr(db_character, field, value)
@@ -480,6 +515,95 @@ async def dismiss_retainer(
     db_character.master_id = None
     db_character.character_type = "pc"
     db_character.loyalty = None
+    db_character.status = "independent"
+    db.commit()
+    db.refresh(db_character)
+    return db_character
+
+
+class RehireRequest(BaseModel):
+    """Request body for rehiring an independent character as a retainer."""
+    master_id: int = Field(..., description="ID of the PC who will be the new master")
+
+
+@router.post("/{character_id}/rehire", response_model=CharacterSchema)
+async def rehire_retainer(
+    character_id: int,
+    req: RehireRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Rehire an independent character as a retainer.
+
+    The target character must have status "independent" and be in the same
+    campaign as the master. Standard CHA retainer limits apply.
+    """
+    db_character = db.query(Character).filter(Character.id == character_id).first()
+    if not db_character:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Character with id {character_id} not found",
+        )
+
+    if db_character.status != "independent":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Only independent characters can be rehired as retainers",
+        )
+
+    master = db.query(Character).filter(Character.id == req.master_id).first()
+    if not master:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Master character with id {req.master_id} not found",
+        )
+
+    if master.campaign_id != db_character.campaign_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Retainer must be in the same campaign as the master",
+        )
+
+    if master.character_type != "pc":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Only PCs can have retainers",
+        )
+
+    if master.status == "fallen":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot hire retainers for a fallen character",
+        )
+
+    if not can_edit_character(current_user, master):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only the master's owner or campaign GM can rehire retainers",
+        )
+
+    # Enforce max retainers from CHA
+    cha = _clamp(master.charisma)
+    max_retainers = _CHA_MAX_RETAINERS[cha]
+    current_retainers = db.query(Character).filter(
+        Character.master_id == master.id,
+        Character.status != "fallen",
+    ).count()
+    if current_retainers >= max_retainers:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"{master.name} already has {current_retainers}/{max_retainers} retainers (CHA {master.charisma})",
+        )
+
+    # Rehire: link to master, set loyalty from CHA
+    db_character.master_id = master.id
+    db_character.character_type = "retainer"
+    db_character.status = "active"
+    db_character.is_alive = True
+    db_character.loyalty = _CHA_LOYALTY[cha]
+    db_character.player_id = master.player_id
+
     db.commit()
     db.refresh(db_character)
     return db_character

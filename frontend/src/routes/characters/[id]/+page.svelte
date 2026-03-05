@@ -11,6 +11,7 @@
   import Notes from '$lib/components/sheet/Notes.svelte';
   import Retainers from '$lib/components/sheet/Retainers.svelte';
   import Mercenaries from '$lib/components/sheet/Mercenaries.svelte';
+  import Specialists from '$lib/components/sheet/Specialists.svelte';
   import DiceOverlay from '$lib/components/shared/DiceOverlay.svelte';
 
   $: characterId = $page.params.id;
@@ -78,6 +79,7 @@
     ...(hasSpells ? [{ key: 'spells', label: 'Spells' }] : []),
     ...(isPC ? [{ key: 'retainers', label: 'Retainers' }] : []),
     ...(isPC ? [{ key: 'mercenaries', label: 'Mercenaries' }] : []),
+    ...(isPC ? [{ key: 'specialists', label: 'Specialists' }] : []),
     { key: 'notes', label: 'Notes' },
   ];
 
@@ -179,6 +181,8 @@
       <Retainers bind:character {isGM} {isOwner} {rollDice} />
     {:else if activeTab === 'mercenaries'}
       <Mercenaries bind:character {isGM} {isOwner} {rollDice} />
+    {:else if activeTab === 'specialists'}
+      <Specialists bind:character {isGM} {isOwner} />
     {:else if activeTab === 'notes'}
       <Notes bind:character />
     {/if}
