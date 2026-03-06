@@ -5,12 +5,13 @@ from sqlalchemy import update as sa_update
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.dependencies import get_current_user
-from app.models import Character, Campaign, CharacterClass, User, Spell, MemorizedSpell, Item, Mercenary, Specialist
+from app.models import Character, Campaign, CharacterClass, User, Spell, MemorizedSpell, Item, Mercenary, Specialist, Monster
 from app.models.item import character_items
 from app.schemas import (
     Character as CharacterSchema,
     CharacterCreate,
     CharacterUpdate,
+    MonsterRetainerCreate,
     CharacterSpellsResponse,
     MemorizedSpellEntry,
     MemorizeRequest,
@@ -102,22 +103,31 @@ async def create_character(
             detail="You must be a member of this campaign to create a character",
         )
 
-    # Validate character class exists
-    char_class = db.query(CharacterClass).filter(
-        CharacterClass.id == character.character_class_id
-    ).first()
-    if not char_class:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Character class with id {character.character_class_id} not found",
-        )
+    # Validate character class exists (if provided)
+    char_class = None
+    if character.character_class_id is not None:
+        char_class = db.query(CharacterClass).filter(
+            CharacterClass.id == character.character_class_id
+        ).first()
+        if not char_class:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Character class with id {character.character_class_id} not found",
+            )
 
-    # Check class is available to this campaign (default or campaign-specific)
-    if not char_class.is_default and char_class.campaign_id != campaign.id:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Character class is not available for this campaign",
-        )
+        # Check class is available to this campaign (default or campaign-specific)
+        if not char_class.is_default and char_class.campaign_id != campaign.id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Character class is not available for this campaign",
+            )
+    else:
+        # Only retainers can have no class (monster retainers)
+        if character.character_type != "retainer":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Only retainers can be created without a character class",
+            )
 
     # Determine owner: GM can assign to a campaign player, otherwise self
     owner_id = current_user.id
@@ -184,7 +194,7 @@ async def create_character(
 
     character_data = character.model_dump(exclude={"campaign_id", "player_id", "master_id"})
     level_index = character_data.get("level", 1) - 1
-    class_data = char_class.class_data
+    class_data = char_class.class_data if char_class else {}
 
     # Auto-populate saving throws from class template if not provided
     if not character_data.get("saving_throws"):
@@ -297,7 +307,7 @@ async def get_character(
             {
                 "id": r.id,
                 "name": r.name,
-                "character_class_name": r.character_class.name if r.character_class else None,
+                "character_class_name": r.character_class.name if r.character_class else (r.combat_stats or {}).get("monster_name"),
                 "level": r.level,
                 "hp_current": r.hp_current,
                 "hp_max": r.hp_max,
@@ -613,6 +623,132 @@ async def rehire_retainer(
     return db_character
 
 
+import re as _re
+
+
+@router.post("/{master_id}/retainers/from-monster", response_model=CharacterSchema)
+async def create_retainer_from_monster(
+    master_id: int,
+    req: MonsterRetainerCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Create a retainer from a monster (e.g. an adopted goblin or pet).
+
+    Maps monster stats to a Character record with no character class.
+    """
+    # Validate master
+    master = db.query(Character).filter(Character.id == master_id).first()
+    if not master:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Character with id {master_id} not found",
+        )
+    if master.character_type != "pc":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Only PCs can have retainers",
+        )
+    if not master.is_alive:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot hire retainers for a fallen character",
+        )
+    if not can_edit_character(current_user, master):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only the master's owner or campaign GM can adopt monster retainers",
+        )
+
+    # Enforce max retainers from CHA
+    cha = _clamp(master.charisma)
+    max_retainers = _CHA_MAX_RETAINERS[cha]
+    current_retainers = db.query(Character).filter(
+        Character.master_id == master.id,
+        Character.status != "fallen",
+    ).count()
+    if current_retainers >= max_retainers:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"{master.name} already has {current_retainers}/{max_retainers} retainers (CHA {master.charisma})",
+        )
+
+    # Validate monster exists and is accessible
+    monster = db.query(Monster).filter(Monster.id == req.monster_id).first()
+    if not monster:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Monster with id {req.monster_id} not found",
+        )
+    if not monster.is_default and monster.campaign_id != master.campaign_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Monster is not available for this campaign",
+        )
+
+    # Parse movement rate: "120' (40')" → 120; None → 120
+    movement = 120
+    if monster.movement_rate:
+        m = _re.search(r"(\d+)", monster.movement_rate)
+        if m:
+            movement = int(m.group(1))
+
+    # Build combat_stats with monster_name for display
+    combat_stats = {
+        "thac0": monster.thac0,
+        "monster_name": monster.name,
+        "monster_id": monster.id,
+    }
+
+    # Build notes from monster description and abilities
+    notes_parts = []
+    if monster.description:
+        notes_parts.append(monster.description)
+    meta = monster.monster_metadata or {}
+    if meta.get("abilities"):
+        for aname, adesc in meta["abilities"].items():
+            notes_parts.append(f"**{aname}:** {adesc}")
+    notes = "\n\n".join(notes_parts) if notes_parts else None
+
+    # Build saving throws from monster metadata
+    saving_throws = None
+    saves = meta.get("saves")
+    if saves:
+        saving_throws = {
+            "death": saves.get("D"),
+            "wands": saves.get("W"),
+            "paralyze": saves.get("P"),
+            "breath": saves.get("B"),
+            "spells": saves.get("S"),
+        }
+
+    loyalty = _CHA_LOYALTY[cha]
+
+    db_character = Character(
+        name=req.name,
+        campaign_id=master.campaign_id,
+        player_id=master.player_id,
+        master_id=master.id,
+        character_type="retainer",
+        character_class_id=None,
+        level=1,
+        alignment=monster.alignment,
+        hp_max=monster.hp or 1,
+        hp_current=monster.hp or 1,
+        ac=monster.ac if monster.ac is not None else 9,
+        movement_rate=movement,
+        saving_throws=saving_throws,
+        combat_stats=combat_stats,
+        loyalty=loyalty,
+        notes=notes,
+    )
+    db.add(db_character)
+    db.commit()
+    db.refresh(db_character)
+    return db_character
+
+
 @router.post("/{character_id}/award-xp", response_model=CharacterSchema)
 async def award_xp(
     character_id: int,
@@ -692,6 +828,11 @@ async def level_up(
         )
 
     char_class = db_character.character_class
+    if char_class is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Monster retainers cannot level up",
+        )
     class_data = char_class.class_data
     current_level = db_character.level
     next_level = current_level + 1

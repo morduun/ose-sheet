@@ -20,7 +20,7 @@ class Character(Base):
 
     # Basic Info
     name = Column(String, nullable=False)
-    character_class_id = Column(Integer, ForeignKey("character_classes.id", ondelete="RESTRICT"), nullable=False)
+    character_class_id = Column(Integer, ForeignKey("character_classes.id", ondelete="RESTRICT"), nullable=True)
     level = Column(Integer, default=1)
     alignment = Column(String, nullable=True)  # e.g., "Lawful", "Neutral", "Chaotic"
     xp = Column(Integer, default=0)

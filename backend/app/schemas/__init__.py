@@ -6,7 +6,7 @@ from app.schemas.campaign import (
     CampaignWithDetails,
     CampaignJoin,
 )
-from app.schemas.character import Character, CharacterCreate, CharacterUpdate, RetainerSummary
+from app.schemas.character import Character, CharacterCreate, CharacterUpdate, RetainerSummary, MonsterRetainerCreate
 from app.schemas.character_class import (
     CharacterClass,
     CharacterClassCreate,
@@ -70,6 +70,7 @@ __all__ = [
     "CharacterCreate",
     "CharacterUpdate",
     "RetainerSummary",
+    "MonsterRetainerCreate",
     "CharacterClass",
     "CharacterClassCreate",
     "CharacterClassUpdate",

@@ -25,7 +25,7 @@ class CharacterBase(BaseModel):
     """Base character schema with common attributes."""
 
     name: str
-    character_class_id: int = Field(..., description="ID of the character's class")
+    character_class_id: int | None = Field(default=None, description="ID of the character's class (None for monster retainers)")
     level: int = 1
     alignment: str | None = None
     xp: int = 0
@@ -122,7 +122,7 @@ class Character(CharacterBase):
     campaign_id: int
     player_id: int
     master_id: int | None = None
-    character_class: CharacterClassSchema  # Full class object via relationship
+    character_class: CharacterClassSchema | None = None  # None for monster retainers
     retainers: list[RetainerSummary] = []
     mercenaries: list[MercenaryUnit] = []
     specialists: list[SpecialistEntry] = []
@@ -168,3 +168,9 @@ class Character(CharacterBase):
     def modifiers(self) -> dict:
         """Derived OSE attribute modifiers and prime requisite XP bonus."""
         return calculate_modifiers(self)
+
+
+class MonsterRetainerCreate(BaseModel):
+    """Schema for creating a retainer from a monster."""
+    monster_id: int
+    name: str
