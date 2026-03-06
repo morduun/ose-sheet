@@ -660,7 +660,7 @@
     align-items: center;
     justify-content: center;
     padding: 0.35rem 0.15rem;
-    border: 1px solid var(--parchment-200, #e8dcc8);
+    border: 1px solid rgb(var(--color-parchment-200));
     border-radius: 0.25rem;
     min-height: 2.5rem;
   }
@@ -672,7 +672,7 @@
   }
 
   .turn-past {
-    background-color: var(--parchment-200, #e8dcc8);
+    background-color: rgb(var(--color-parchment-200));
     opacity: 0.7;
   }
 
@@ -755,7 +755,7 @@
   .alert-timer_expired {
     background-color: rgba(107, 92, 74, 0.08);
     border-left-color: rgba(107, 92, 74, 0.4);
-    color: var(--ink-faint, #6b5c4a);
+    color: rgb(var(--color-ink-faint));
   }
 
   .alert-darkness {

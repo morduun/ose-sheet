@@ -5,21 +5,21 @@ export default {
     extend: {
       colors: {
         parchment: {
-          50: '#fdf8ed',
-          100: '#f9efd6',
-          200: '#f4e0b0',
-          300: '#ecc878',
-          DEFAULT: '#f4e8c1',
+          50: 'rgb(var(--color-parchment-50) / <alpha-value>)',
+          100: 'rgb(var(--color-parchment-100) / <alpha-value>)',
+          200: 'rgb(var(--color-parchment-200) / <alpha-value>)',
+          300: 'rgb(var(--color-parchment-300) / <alpha-value>)',
+          DEFAULT: 'rgb(var(--color-parchment) / <alpha-value>)',
         },
         ink: {
-          DEFAULT: '#2c1810',
-          light: '#5c3d2e',
-          faint: '#8b6347',
+          DEFAULT: 'rgb(var(--color-ink) / <alpha-value>)',
+          light: 'rgb(var(--color-ink-light) / <alpha-value>)',
+          faint: 'rgb(var(--color-ink-faint) / <alpha-value>)',
         },
       },
       fontFamily: {
-        serif: ['"IM Fell English"', 'Georgia', 'serif'],
-        sans: ['Inter', 'system-ui', 'sans-serif'],
+        serif: ['var(--font-serif)'],
+        sans: ['var(--font-sans)'],
       },
     },
   },

@@ -132,7 +132,7 @@
                 <div>
                   <h3 class="font-serif text-lg text-ink">{char.name}</h3>
                   <p class="text-xs text-ink-faint mt-0.5">
-                    {char.character_class?.name ?? 'Unknown Class'} · Level {char.level}
+                    {char.character_class?.name ?? char.combat_stats?.monster_name ?? 'Unknown'} · Level {char.level}
                   </p>
                 </div>
                 <Badge label={char.alignment ?? ''} />
@@ -163,7 +163,7 @@
                   <div>
                     <h3 class="font-serif text-lg text-ink">{char.name}</h3>
                     <p class="text-xs text-ink-faint mt-0.5">
-                      {char.character_class?.name ?? 'Unknown Class'} · Level {char.level}
+                      {char.character_class?.name ?? char.combat_stats?.monster_name ?? 'Unknown'} · Level {char.level}
                     </p>
                   </div>
                   <span class="text-[10px] px-1.5 py-0.5 rounded bg-ink/10 text-ink-faint uppercase tracking-wide font-medium">Independent</span>
@@ -202,7 +202,7 @@
                     <div>
                       <h3 class="font-serif text-lg text-ink line-through decoration-1 text-ink-faint">{char.name}</h3>
                       <p class="text-xs text-ink-faint mt-0.5">
-                        {char.character_class?.name ?? 'Unknown Class'} · Level {char.level}
+                        {char.character_class?.name ?? char.combat_stats?.monster_name ?? 'Unknown'} · Level {char.level}
                       </p>
                     </div>
                     <span class="text-[10px] px-1.5 py-0.5 rounded bg-red-900/20 text-red-900 uppercase tracking-wide font-medium">Fallen</span>

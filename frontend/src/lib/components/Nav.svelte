@@ -1,5 +1,5 @@
 <script>
-  import { isLoggedIn, isAdmin, token } from '$lib/stores.js';
+  import { isLoggedIn, isAdmin, token, theme } from '$lib/stores.js';
   import { goto } from '$app/navigation';
 
   function logout() {
@@ -33,7 +33,14 @@
         Admin
       </a>
     {/if}
-    <div class="ml-auto">
+    <div class="ml-auto flex items-center gap-4">
+      <button
+        class="text-sm text-parchment-200 hover:text-parchment-50 transition-colors"
+        on:click={() => theme.toggle()}
+        title="Switch theme"
+      >
+        {$theme === 'notebook' ? '\u{1F4DC}' : '\u{1F4D3}'}
+      </button>
       <button
         class="text-sm text-parchment-200 hover:text-parchment-50 transition-colors"
         on:click={logout}

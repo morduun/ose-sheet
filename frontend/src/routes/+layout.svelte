@@ -1,7 +1,7 @@
 <script>
   import '../app.css';
   import Nav from '$lib/components/Nav.svelte';
-  import { isLoggedIn, fetchUserInfo } from '$lib/stores.js';
+  import { isLoggedIn, fetchUserInfo, theme } from '$lib/stores.js';
   import { goto } from '$app/navigation';
   import { page } from '$app/stores';
   import { browser } from '$app/environment';
@@ -10,6 +10,8 @@
   $: if (browser && !$isLoggedIn && $page.url.pathname !== '/' && !$page.url.pathname.startsWith('/auth/')) {
     goto('/');
   }
+
+  $: if (browser) document.documentElement.setAttribute('data-theme', $theme);
 
   onMount(() => {
     if ($isLoggedIn) fetchUserInfo();

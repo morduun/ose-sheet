@@ -2,40 +2,113 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ── Theme variables ── */
+:root {
+  /* Parchment palette (space-separated RGB channels) */
+  --color-parchment-50: 253 248 237;
+  --color-parchment-100: 249 239 214;
+  --color-parchment-200: 244 224 176;
+  --color-parchment-300: 236 200 120;
+  --color-parchment: 244 232 193;
+  --color-ink: 44 24 16;
+  --color-ink-light: 92 61 46;
+  --color-ink-faint: 139 99 71;
+
+  /* Fonts */
+  --font-serif: "IM Fell English", Georgia, serif;
+  --font-sans: Inter, system-ui, sans-serif;
+
+  /* Surface */
+  --body-texture: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='300'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='300' height='300' filter='url(%23noise)' opacity='0.04'/%3E%3C/svg%3E");
+  --panel-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  --panel-border: rgb(var(--color-ink-faint));
+  --input-border-radius: 0.25rem;
+  --btn-border-radius: 0.25rem;
+}
+
+/* ── Notebook theme ── */
+[data-theme="notebook"] {
+  /* Off-white loose-leaf paper, NOT clean white */
+  --color-parchment-50: 245 242 236;
+  --color-parchment-100: 240 236 228;
+  --color-parchment-200: 156 179 201; /* ruled-line blue */
+  --color-parchment-300: 122 154 181;
+  --color-parchment: 237 233 225;
+  /* Pencil graphite */
+  --color-ink: 58 58 60;
+  --color-ink-light: 100 100 102;
+  --color-ink-faint: 148 148 152;
+
+  --font-serif: "Caveat", cursive;
+  --font-sans: "Patrick Hand", "Architects Daughter", cursive;
+
+  --body-texture: none;
+  --panel-shadow: none;
+  --panel-border: rgb(var(--color-parchment-200));
+  --input-border-radius: 0;
+  --btn-border-radius: 0;
+}
+
 @layer base {
   body {
     @apply bg-parchment font-sans text-ink;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='300'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='300' height='300' filter='url(%23noise)' opacity='0.04'/%3E%3C/svg%3E");
+    background-image: var(--body-texture);
   }
 
   h1, h2, h3 {
     @apply font-serif;
   }
+
+  /* Notebook ruled lines on body — college ruled spacing */
+  [data-theme="notebook"] body {
+    background-image:
+      repeating-linear-gradient(
+        to bottom,
+        transparent,
+        transparent calc(1.75rem - 1px),
+        rgba(156, 179, 201, 0.55) calc(1.75rem - 1px),
+        rgba(156, 179, 201, 0.55) 1.75rem
+      );
+    background-size: 100% 1.75rem;
+  }
 }
 
 @layer components {
   .panel {
-    @apply bg-parchment-50 border border-ink-faint rounded-sm shadow-sm p-4;
+    @apply bg-parchment-50 border rounded-sm p-4;
+    border-color: var(--panel-border);
+    box-shadow: var(--panel-shadow);
   }
 
   .section-title {
-    @apply font-serif text-lg text-ink border-b border-ink-faint pb-1 mb-3;
+    @apply font-serif text-lg text-ink pb-1 mb-3;
+    border-bottom: 1px solid var(--panel-border);
   }
 
   .btn {
-    @apply bg-ink text-parchment-50 hover:bg-ink-light rounded px-3 py-1 text-sm transition-colors cursor-pointer;
+    @apply bg-ink text-parchment-50 hover:bg-ink-light px-3 py-1 text-sm transition-colors cursor-pointer;
+    border-radius: var(--btn-border-radius);
   }
 
   .btn-danger {
-    @apply bg-red-800 text-white hover:bg-red-900 rounded px-3 py-1 text-sm transition-colors cursor-pointer;
+    @apply bg-red-800 text-white hover:bg-red-900 px-3 py-1 text-sm transition-colors cursor-pointer;
+    border-radius: var(--btn-border-radius);
   }
 
   .btn-ghost {
-    @apply border border-ink-faint text-ink hover:bg-parchment-100 rounded px-3 py-1 text-sm transition-colors cursor-pointer;
+    @apply text-ink hover:bg-parchment-100 px-3 py-1 text-sm transition-colors cursor-pointer;
+    border: 1px solid var(--panel-border);
+    border-radius: var(--btn-border-radius);
   }
 
   .input {
-    @apply bg-parchment-50 border border-ink-faint rounded px-2 py-1 text-ink text-sm focus:outline-none focus:border-ink;
+    @apply bg-parchment-50 px-2 py-1 text-ink text-sm focus:outline-none;
+    border: 1px solid var(--panel-border);
+    border-radius: var(--input-border-radius);
+  }
+
+  .input:focus {
+    border-color: rgb(var(--color-ink));
   }
 
   .tab {
@@ -44,5 +117,120 @@
 
   .tab-active {
     @apply px-4 py-2 text-sm font-medium text-ink border-b-2 border-ink bg-parchment-50 cursor-pointer;
+  }
+
+  /* ── Notebook-specific refinements ── */
+
+  /* Force handwriting font on ALL elements — don't rely on inheritance.
+     :where() keeps specificity at zero so .font-serif utilities still win. */
+  [data-theme="notebook"] :where(*) {
+    font-family: var(--font-sans);
+  }
+
+  /* Red margin line — like real loose-leaf */
+  [data-theme="notebook"] body::before {
+    content: "";
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: 3.5rem;
+    width: 2px;
+    background: rgba(210, 60, 70, 0.45);
+    z-index: 50;
+    pointer-events: none;
+  }
+
+  /* Three-hole punch */
+  [data-theme="notebook"] body::after {
+    content: "";
+    position: fixed;
+    top: 50%;
+    left: 0.65rem;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: #c8c4bc;
+    border: 1.5px solid #a8a49c;
+    box-shadow:
+      0 -30vh 0 0 #c8c4bc,
+      0 -30vh 0 1.5px #a8a49c,
+      0 30vh 0 0 #c8c4bc,
+      0 30vh 0 1.5px #a8a49c;
+    transform: translateY(-50%);
+    z-index: 50;
+    pointer-events: none;
+  }
+
+  /* Scrawled headings — bigger and bolder like pencil pressing hard */
+  [data-theme="notebook"] h1,
+  [data-theme="notebook"] h2,
+  [data-theme="notebook"] h3 {
+    font-weight: 700;
+    letter-spacing: -0.01em;
+  }
+
+  /* Outlined buttons — pencil-sketch style, no fill */
+  [data-theme="notebook"] .btn {
+    background: transparent;
+    color: rgb(var(--color-ink));
+    border: 2px solid rgb(var(--color-ink));
+    font-family: var(--font-sans);
+  }
+  [data-theme="notebook"] .btn:hover {
+    background: rgb(var(--color-ink) / 0.08);
+  }
+
+  /* btn-danger keeps its fill but goes rougher */
+  [data-theme="notebook"] .btn-danger {
+    border-radius: 0;
+  }
+
+  /* Ghost buttons — dashed outline like a sketched box */
+  [data-theme="notebook"] .btn-ghost {
+    border-style: dashed;
+    border-radius: 0;
+  }
+
+  /* Panels: invisible — just content on lined paper */
+  [data-theme="notebook"] .panel {
+    background: transparent;
+    border: none;
+    border-bottom: 1.5px solid rgba(156, 179, 201, 0.4);
+    border-radius: 0;
+  }
+
+  /* Inputs: just a bottom line — writing on the ruled line */
+  [data-theme="notebook"] .input {
+    border: none;
+    border-bottom: 2px solid rgb(var(--color-ink-faint));
+    background: transparent;
+    border-radius: 0;
+    font-family: var(--font-sans);
+  }
+  [data-theme="notebook"] .input:focus {
+    border-bottom-color: rgb(var(--color-ink));
+  }
+
+  /* Select elements also get the underline treatment */
+  [data-theme="notebook"] select.input {
+    border-bottom-style: solid;
+  }
+
+  /* Section titles — heavy underline like someone dragged a ruler */
+  [data-theme="notebook"] .section-title {
+    border-bottom: 2.5px solid rgb(var(--color-ink));
+    font-weight: 700;
+    font-size: 1.3rem;
+  }
+
+  /* Tabs — just underlines, no background boxes */
+  [data-theme="notebook"] .tab {
+    border-bottom-width: 3px;
+    border-bottom-style: dashed;
+  }
+  [data-theme="notebook"] .tab-active {
+    background: transparent;
+    border-bottom-width: 3px;
+    border-bottom-style: solid;
   }
 }

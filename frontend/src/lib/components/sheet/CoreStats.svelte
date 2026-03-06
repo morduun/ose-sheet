@@ -560,7 +560,7 @@
     <div>
       <h1 class="font-serif text-3xl text-ink">{character.name}</h1>
       <p class="text-ink-faint text-sm">
-        {character.character_class?.name ?? 'Unknown Class'} · Level {character.level} · {character.alignment ?? 'Neutral'}
+        {character.character_class?.name ?? character.combat_stats?.monster_name ?? 'Unknown'} · Level {character.level} · {character.alignment ?? 'Neutral'}
       </p>
     </div>
     <div class="ml-auto flex gap-2">
@@ -615,7 +615,7 @@
   <Modal bind:open={showLevelUpModal} title="Level Up to {character.level + 1}">
     <div class="space-y-4">
       <p class="text-sm text-ink">
-        <strong>{character.name}</strong> — {character.character_class?.name ?? 'Unknown'}
+        <strong>{character.name}</strong> — {character.character_class?.name ?? character.combat_stats?.monster_name ?? 'Unknown'}
       </p>
 
       {#if hpIsFlat}
@@ -1204,9 +1204,9 @@
 <!-- Warning Toast -->
 {#if warningToast}
   <button
-    class="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 panel shadow-lg
+    class="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 shadow-lg rounded-sm p-4
            cursor-pointer print:hidden min-w-[200px] text-center
-           border-red-900/30 bg-red-50"
+           border border-red-900/30 bg-red-50"
     on:click={() => { warningToast = ''; }}
   >
     <div class="text-sm text-red-800 font-medium">{warningToast}</div>
@@ -1232,7 +1232,7 @@
     cursor: default;
   }
   .hover-highlight:hover {
-    background-color: #f9efd6;
+    background-color: rgb(var(--color-parchment-100));
   }
   .range-toggle {
     font-size: 0.7rem;
@@ -1240,14 +1240,14 @@
     border-radius: 0.2rem;
     cursor: pointer;
     transition: background-color 0.15s;
-    color: var(--ink-faint, #8b7d6b);
+    color: rgb(var(--color-ink-faint));
   }
   .range-toggle:hover {
-    background-color: #f9efd6;
+    background-color: rgb(var(--color-parchment-100));
   }
   .range-active {
-    background-color: #e8dcc8;
+    background-color: rgb(var(--color-parchment-200));
     font-weight: 600;
-    color: var(--ink, #3d3425);
+    color: rgb(var(--color-ink));
   }
 </style>

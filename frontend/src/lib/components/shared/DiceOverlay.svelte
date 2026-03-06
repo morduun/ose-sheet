@@ -73,7 +73,8 @@
 <!-- Result toast -->
 {#if toastVisible}
   <button
-    class="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 panel shadow-lg
+    class="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 shadow-lg rounded-sm p-4
+           border border-ink-faint bg-parchment-50
            cursor-pointer print:hidden min-w-[200px] text-center
            animate-slide-up"
     on:click={dismissToast}

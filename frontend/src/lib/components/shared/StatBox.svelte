@@ -22,6 +22,6 @@
 
 <style>
   .hover-highlight:hover {
-    background-color: #f9efd6;
+    background-color: rgb(var(--color-parchment-100));
   }
 </style>

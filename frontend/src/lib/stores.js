@@ -1,4 +1,24 @@
 import { writable, derived, get } from 'svelte/store';
+import { browser } from '$app/environment';
+
+function createThemeStore() {
+  const stored = browser ? localStorage.getItem('ose_theme') : null;
+  const { subscribe, set } = writable(stored || 'parchment');
+  return {
+    subscribe,
+    set(val) {
+      if (browser) localStorage.setItem('ose_theme', val);
+      set(val);
+    },
+    toggle() {
+      let current;
+      subscribe(v => current = v)();
+      this.set(current === 'parchment' ? 'notebook' : 'parchment');
+    },
+  };
+}
+
+export const theme = createThemeStore();
 
 function createTokenStore() {
   const stored = typeof localStorage !== 'undefined' ? localStorage.getItem('ose_token') : null;

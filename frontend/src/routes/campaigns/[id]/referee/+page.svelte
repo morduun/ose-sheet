@@ -688,7 +688,7 @@
                   {#if isMonster}
                     Monster
                   {:else}
-                    {combatant.data.character_class?.name ?? '?'} {combatant.data.level}
+                    {combatant.data.character_class?.name ?? combatant.data.combat_stats?.monster_name ?? '?'} {combatant.data.level}
                   {/if}
                 </td>
 
@@ -926,7 +926,7 @@
   <!-- svelte-ignore a11y-click-events-have-key-events -->
   <!-- svelte-ignore a11y-no-static-element-interactions -->
   <div class="fixed inset-0 bg-black/40 z-40 flex items-center justify-center print:hidden" on:click|self={() => showAddMonster = false}>
-    <div class="panel bg-parchment-50 shadow-xl w-full max-w-lg max-h-[80vh] flex flex-col">
+    <div class="panel w-full max-w-lg max-h-[80vh] flex flex-col referee-modal">
       <div class="flex items-center justify-between mb-3">
         <h2 class="section-title">Add Monster</h2>
         <button class="btn-ghost text-xs" on:click={() => showAddMonster = false}>&times; Close</button>
@@ -978,7 +978,7 @@
   {@const tm = tooltipMonster}
   {@const tmeta = tm.monster_metadata || {}}
   <div
-    class="fixed z-50 panel shadow-lg bg-parchment-50 text-sm max-w-xs pointer-events-none print:hidden monster-tooltip"
+    class="fixed z-50 shadow-lg rounded-sm p-4 border border-ink-faint bg-parchment-50 text-sm max-w-xs pointer-events-none print:hidden monster-tooltip"
     style="left: {Math.min(tooltipPos.x + 12, (typeof window !== 'undefined' ? window.innerWidth - 320 : 400))}px; top: {Math.max(tooltipPos.y - 10, 10)}px;"
   >
     <div class="font-serif text-lg text-ink mb-1">{tm.name}</div>
@@ -1020,7 +1020,7 @@
   <!-- svelte-ignore a11y-click-events-have-key-events -->
   <!-- svelte-ignore a11y-no-static-element-interactions -->
   <div
-    class="fixed bottom-6 right-6 z-50 panel shadow-lg border-green-800/30 bg-green-50 min-w-[220px] max-w-[360px] cursor-pointer print:hidden"
+    class="fixed bottom-6 right-6 z-50 shadow-lg rounded-sm p-4 border border-green-800/30 bg-green-50 min-w-[220px] max-w-[360px] cursor-pointer print:hidden"
     on:click={() => { roundEffectsToast = []; }}
   >
     <div class="text-xs text-green-800 font-bold uppercase tracking-wide mb-1">Round Effects</div>
@@ -1084,8 +1084,8 @@
     line-height: 1.4;
     padding: 0.05rem 0.4rem;
     border-radius: 0.25rem;
-    background-color: var(--parchment-200, #e8dcc8);
-    color: var(--ink-faint, #6b5c4a);
+    background-color: rgb(var(--color-parchment-200));
+    color: rgb(var(--color-ink-faint));
     white-space: nowrap;
   }
 
@@ -1156,5 +1156,11 @@
   .rollable-inline:disabled {
     cursor: default;
     border-bottom-color: transparent;
+  }
+
+  .referee-modal {
+    background: rgb(var(--color-parchment-50, 250 245 235)) !important;
+    border: 1px solid rgba(107, 92, 74, 0.2) !important;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.25) !important;
   }
 </style>

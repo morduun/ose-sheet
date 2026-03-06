@@ -13,10 +13,23 @@
   let loadingPool = false;
   let rehiring = null;
 
+  // Monster adoption state (inside hire modal)
+  let monsterSearch = '';
+  let availableMonsters = [];
+  let loadingMonsters = false;
+  let selectedMonster = null;
+  let monsterRetainerName = '';
+  let adoptingMonster = false;
+  let showMonsterSearch = false;
+
   $: retainers = character?.retainers ?? [];
   $: maxRetainers = character?.modifiers?.charisma?.max_retainers ?? 4;
   $: baseLoyalty = character?.modifiers?.charisma?.retainer_loyalty ?? 7;
   $: canHire = (isOwner || isGM) && retainers.length < maxRetainers;
+
+  $: filteredMonsters = monsterSearch.trim()
+    ? availableMonsters.filter(m => m.name.toLowerCase().includes(monsterSearch.toLowerCase()))
+    : availableMonsters;
 
   function hpPct(current, max) {
     return max > 0 ? Math.round((current / max) * 100) : 0;
@@ -70,11 +83,9 @@
       await api.post(`/characters/${indChar.id}/rehire`, {
         master_id: character.id,
       });
-      // Refresh the whole character to get updated retainer list
       const updated = await api.get(`/characters/${character.id}`);
       character = updated;
       independentPool = independentPool.filter(c => c.id !== indChar.id);
-      // Close modal if no more room or pool empty
       if (retainers.length >= maxRetainers || independentPool.length === 0) {
         showHireModal = false;
       }
@@ -82,6 +93,58 @@
       alert(e.message || 'Failed to rehire');
     } finally {
       rehiring = null;
+    }
+  }
+
+  async function openMonsterSearch() {
+    showMonsterSearch = true;
+    selectedMonster = null;
+    monsterRetainerName = '';
+    monsterSearch = '';
+    if (availableMonsters.length === 0) {
+      loadingMonsters = true;
+      try {
+        availableMonsters = await api.get(`/monsters/?campaign_id=${character.campaign_id}&limit=500`);
+      } catch {
+        availableMonsters = [];
+      } finally {
+        loadingMonsters = false;
+      }
+    }
+  }
+
+  function closeMonsterSearch() {
+    showMonsterSearch = false;
+    selectedMonster = null;
+    monsterRetainerName = '';
+  }
+
+  function selectMonster(monster) {
+    selectedMonster = monster;
+    monsterRetainerName = monster.name;
+  }
+
+  function backToSearch() {
+    selectedMonster = null;
+    monsterRetainerName = '';
+  }
+
+  async function adoptMonster() {
+    if (!selectedMonster || !monsterRetainerName.trim()) return;
+    adoptingMonster = true;
+    try {
+      await api.post(`/characters/${character.id}/retainers/from-monster`, {
+        monster_id: selectedMonster.id,
+        name: monsterRetainerName.trim(),
+      });
+      const updated = await api.get(`/characters/${character.id}`);
+      character = updated;
+      showHireModal = false;
+      showMonsterSearch = false;
+    } catch (e) {
+      alert(e.message || 'Failed to adopt monster as retainer');
+    } finally {
+      adoptingMonster = false;
     }
   }
 </script>
@@ -175,41 +238,122 @@
   {/if}
 
   <!-- Hire Retainer Modal -->
-  <Modal bind:open={showHireModal} title="Hire Retainer">
-    {#if loadingPool}
-      <p class="text-sm text-ink-faint">Loading...</p>
-    {:else}
-      {#if independentPool.length > 0}
-        <p class="text-xs text-ink-faint mb-3">Rehire a former companion:</p>
-        <div class="space-y-2 mb-4">
-          {#each independentPool as ind (ind.id)}
-            <div class="panel flex items-center justify-between py-2 px-3">
-              <div>
-                <span class="font-medium text-ink text-sm">{ind.name}</span>
-                <span class="text-xs text-ink-faint ml-1">
-                  {ind.character_class?.name ?? 'Unknown'} {ind.level}
-                </span>
-              </div>
-              <button
-                class="btn text-xs"
-                disabled={rehiring === ind.id}
-                on:click={() => rehire(ind)}
+  <Modal bind:open={showHireModal} title={showMonsterSearch && selectedMonster ? 'Adopt as Retainer' : showMonsterSearch ? 'From Monster' : 'Hire Retainer'}>
+    {#if showMonsterSearch}
+      <!-- Monster adoption sub-view -->
+      {#if !selectedMonster}
+        <!-- Phase 1: Search and select monster -->
+        <input
+          class="input w-full mb-3"
+          type="text"
+          bind:value={monsterSearch}
+          placeholder="Search monsters..."
+          autofocus
+        />
+        <div class="max-h-[50vh] overflow-y-auto -mx-4 px-4">
+          {#if loadingMonsters}
+            <p class="text-sm text-ink-faint">Loading...</p>
+          {:else if filteredMonsters.length === 0}
+            <p class="text-sm text-ink-faint">No monsters found.</p>
+          {:else}
+            {#each filteredMonsters as monster}
+              <!-- svelte-ignore a11y-click-events-have-key-events -->
+              <!-- svelte-ignore a11y-no-static-element-interactions -->
+              <div
+                class="py-2 px-2 rounded cursor-pointer hover:bg-parchment-200 transition-colors border-b border-parchment-100"
+                on:click={() => selectMonster(monster)}
               >
-                {rehiring === ind.id ? 'Rehiring...' : 'Rehire'}
-              </button>
-            </div>
-          {/each}
+                <div class="font-medium text-ink">{monster.name}</div>
+                <div class="text-xs text-ink-faint flex gap-3">
+                  {#if monster.ac != null}<span>AC {monster.ac}</span>{/if}
+                  {#if monster.hit_dice}<span>HD {monster.hit_dice}</span>{/if}
+                  {#if monster.hp != null}<span>HP {monster.hp}</span>{/if}
+                  {#if monster.thac0 != null}<span>THAC0 {monster.thac0}</span>{/if}
+                </div>
+              </div>
+            {/each}
+          {/if}
         </div>
-        <hr class="border-ink-faint/20 mb-4" />
+        <div class="mt-3 pt-3 border-t border-ink-faint/20">
+          <button class="btn-ghost text-sm" on:click={closeMonsterSearch}>&larr; Back</button>
+        </div>
+      {:else}
+        <!-- Phase 2: Name and confirm -->
+        <div class="space-y-4">
+          <div class="panel bg-parchment-100/50">
+            <div class="font-medium text-ink">{selectedMonster.name}</div>
+            <div class="text-xs text-ink-faint flex gap-3 mt-1">
+              {#if selectedMonster.ac != null}<span>AC {selectedMonster.ac}</span>{/if}
+              {#if selectedMonster.hit_dice}<span>HD {selectedMonster.hit_dice}</span>{/if}
+              {#if selectedMonster.hp != null}<span>HP {selectedMonster.hp}</span>{/if}
+              {#if selectedMonster.movement_rate}<span>MV {selectedMonster.movement_rate}</span>{/if}
+            </div>
+          </div>
+
+          <div>
+            <label class="text-xs text-ink-faint uppercase tracking-wide" for="monster-name">Retainer Name</label>
+            <input
+              id="monster-name"
+              class="input w-full mt-1"
+              type="text"
+              bind:value={monsterRetainerName}
+              placeholder="Name your new companion..."
+              autofocus
+            />
+          </div>
+
+          <div class="flex gap-2 justify-end">
+            <button class="btn-ghost text-sm" on:click={backToSearch}>&larr; Back</button>
+            <button
+              class="btn text-sm"
+              disabled={!monsterRetainerName.trim() || adoptingMonster}
+              on:click={adoptMonster}
+            >
+              {adoptingMonster ? 'Adopting...' : 'Adopt as Retainer'}
+            </button>
+          </div>
+        </div>
       {/if}
-      <div class="text-center">
-        <a
-          href="/campaigns/{character.campaign_id}/characters/new?master_id={character.id}"
-          class="btn text-sm inline-block"
-        >
-          Create New Retainer
-        </a>
-      </div>
+    {:else}
+      <!-- Default hire view -->
+      {#if loadingPool}
+        <p class="text-sm text-ink-faint">Loading...</p>
+      {:else}
+        {#if independentPool.length > 0}
+          <p class="text-xs text-ink-faint mb-3">Rehire a former companion:</p>
+          <div class="space-y-2 mb-4">
+            {#each independentPool as ind (ind.id)}
+              <div class="panel flex items-center justify-between py-2 px-3">
+                <div>
+                  <span class="font-medium text-ink text-sm">{ind.name}</span>
+                  <span class="text-xs text-ink-faint ml-1">
+                    {ind.character_class?.name ?? ind.combat_stats?.monster_name ?? 'Unknown'} {ind.level}
+                  </span>
+                </div>
+                <button
+                  class="btn text-xs"
+                  disabled={rehiring === ind.id}
+                  on:click={() => rehire(ind)}
+                >
+                  {rehiring === ind.id ? 'Rehiring...' : 'Rehire'}
+                </button>
+              </div>
+            {/each}
+          </div>
+          <hr class="border-ink-faint/20 mb-4" />
+        {/if}
+        <div class="flex justify-center gap-3">
+          <a
+            href="/campaigns/{character.campaign_id}/characters/new?master_id={character.id}"
+            class="btn text-sm inline-block"
+          >
+            Create New Retainer
+          </a>
+          <button class="btn-ghost text-sm" on:click={openMonsterSearch}>
+            From Monster
+          </button>
+        </div>
+      {/if}
     {/if}
   </Modal>
 </div>

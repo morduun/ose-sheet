@@ -15,9 +15,13 @@ export async function initDice(containerSelector) {
     destroyDice();
   }
 
+  const inkRgb = getComputedStyle(document.documentElement)
+    .getPropertyValue('--color-ink').trim().split(' ').map(Number);
+  const themeHex = '#' + inkRgb.map(c => c.toString(16).padStart(2, '0')).join('');
+
   diceBox = new DiceBox(containerSelector, {
     assetPath: '/assets/dice-box/',
-    themeColor: '#2c1810',
+    themeColor: themeHex,
     scale: 8,
     gravity: 1,
     enableShadows: false,
