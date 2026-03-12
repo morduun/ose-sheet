@@ -58,8 +58,7 @@ install-backend:
 	@$(PY) -m pip install -r "$(BACKEND)/requirements.txt"
 
 install-frontend:
-    # Ensuring directories exist before attempting to copy to it.
-	$(PY) -m pip show pip > /dev/null && $(PY) -c "import os; os.makedirs('$(FRONTEND)/static/assets/dice-box', exist_ok=True)"
+	$(PY) -c "import os; os.makedirs('$(FRONTEND)/static/assets/dice-box', exist_ok=True)"
 	cd $(FRONTEND) && npm install
 
 # ── Preflight ────────────────────────────────────────────────
@@ -69,7 +68,6 @@ preflight-dirs:
 
 # ── Database ─────────────────────────────────────────────────
 
-# Attempting to fix the migration errors i was encountering in both MacOS and Ubuntu
 migrate: install-backend preflight-dirs
 	@echo "Validating migration chain..."
 	@cd $(BACKEND) && $(PY_IN_BACKEND) -m alembic history 2>&1 | python3 -c "\
@@ -90,6 +88,14 @@ sys.exit(0) if len(bases) == 1 else (print('ERROR: Migration chain is broken - m
 		fi \
 	fi
 	cd $(BACKEND) && $(PY_IN_BACKEND) -m alembic upgrade head
+
+migrate-new: install-backend preflight-dirs
+	@printf "Migration message: "; \
+	read msg; \
+	cd $(BACKEND) && $(PY_IN_BACKEND) -m alembic revision --autogenerate -m "$$msg"
+
+db-shell: preflight-dirs
+	sqlite3 $(DB)
 
 # ── Seed Data ────────────────────────────────────────────────
 
