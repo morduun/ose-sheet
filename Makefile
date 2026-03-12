@@ -58,6 +58,8 @@ install-backend:
 	@$(PY) -m pip install -r "$(BACKEND)/requirements.txt"
 
 install-frontend:
+    # Ensuring directories exist before attempting to copy to it.
+	$(PY) -m pip show pip > /dev/null && $(PY) -c "import os; os.makedirs('$(FRONTEND)/static/assets/dice-box', exist_ok=True)"
 	cd $(FRONTEND) && npm install
 
 # ── Preflight ────────────────────────────────────────────────
