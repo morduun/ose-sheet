@@ -69,7 +69,16 @@ preflight-dirs:
 
 # ── Database ─────────────────────────────────────────────────
 
+# Attempting to fix the migration errors i was encountering in both MacOS and Ubuntu
 migrate: install-backend preflight-dirs
+	@echo "Validating migration chain..."
+	@cd $(BACKEND) && $(PY_IN_BACKEND) -m alembic history 2>&1 | python3 -c "\
+import sys; \
+lines = sys.stdin.readlines(); \
+bases = [l for l in lines if '<base>' in l]; \
+print(f'Found {len(bases)} base migration(s)'); \
+sys.exit(0) if len(bases) == 1 else (print('ERROR: Migration chain is broken - multiple or missing base revisions found:'), [print(l.strip()) for l in bases], sys.exit(1)) \
+"
 	@if [ ! -f "$(DB)" ]; then \
 		latest_backup=$$(ls -t $(BACKUP_DIR)/ose_sheets_*.db 2>/dev/null | head -1); \
 		if [ -n "$$latest_backup" ]; then \
