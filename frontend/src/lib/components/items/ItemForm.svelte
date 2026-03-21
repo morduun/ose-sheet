@@ -17,6 +17,8 @@
   let unidentifiedName = initialData?.unidentified_name || '';
   let itemType = initialData?.item_type || 'weapon';
   let equippable = initialData?.equippable || false;
+  let fillable = initialData?.item_metadata?.fillable || false;
+  let capacity = initialData?.item_metadata?.capacity != null ? String(initialData.item_metadata.capacity) : '';
   let weight = initialData?.weight != null ? String(initialData.weight) : '';
   let costGp = initialData?.cost_gp != null ? String(initialData.cost_gp) : '';
   let descriptionPlayer = initialData?.description_player || '';
@@ -56,13 +58,18 @@
 
   let abilityEntries = initAbilities();
 
-  // Strip ability_metadata from metadataJson on init (the structured editor owns it)
-  if (abilityEntries.length > 0 && metadataJson.trim()) {
-    try {
-      const parsed = JSON.parse(metadataJson);
-      delete parsed.ability_metadata;
-      metadataJson = Object.keys(parsed).length > 0 ? JSON.stringify(parsed, null, 2) : '';
-    } catch { /* leave as-is */ }
+  // Strip fields owned by structured editors from metadataJson on init
+  {
+    let needsClean = abilityEntries.length > 0 || fillable || capacity;
+    if (needsClean && metadataJson.trim()) {
+      try {
+        const parsed = JSON.parse(metadataJson);
+        delete parsed.ability_metadata;
+        delete parsed.fillable;
+        delete parsed.capacity;
+        metadataJson = Object.keys(parsed).length > 0 ? JSON.stringify(parsed, null, 2) : '';
+      } catch { /* leave as-is */ }
+    }
   }
 
   function addAbility() {
@@ -178,12 +185,22 @@
         .filter(s => s.text.trim())
         .map(s => ({ text: s.text.trim(), revealed: s.revealed }));
 
-      // Merge ability_metadata into item_metadata
+      // Merge structured fields into item_metadata
       let finalMeta = parsedMeta ? { ...parsedMeta } : {};
       if (abilityEntries.length > 0) {
         finalMeta.ability_metadata = abilityEntries;
       } else {
         delete finalMeta.ability_metadata;
+      }
+      if (fillable) {
+        finalMeta.fillable = true;
+      } else {
+        delete finalMeta.fillable;
+      }
+      if (capacity && parseFloat(capacity) > 0) {
+        finalMeta.capacity = parseFloat(capacity);
+      } else {
+        delete finalMeta.capacity;
       }
       // If finalMeta is empty, set to null
       if (Object.keys(finalMeta).length === 0) finalMeta = null;
@@ -232,15 +249,19 @@
           {/each}
         </select>
       </div>
-      <div class="flex items-end pb-2">
+      <div class="flex items-end gap-4 pb-2">
         <label class="flex items-center gap-2 text-sm text-ink cursor-pointer">
           <input type="checkbox" bind:checked={equippable} class="accent-ink" />
           Equippable
         </label>
+        <label class="flex items-center gap-2 text-sm text-ink cursor-pointer" title="Can hold liquids (waterskin, flask)">
+          <input type="checkbox" bind:checked={fillable} class="accent-ink" />
+          Fillable
+        </label>
       </div>
     </div>
 
-    <div class="grid grid-cols-2 gap-4">
+    <div class="grid grid-cols-3 gap-4">
       <div>
         <label class="block text-sm text-ink mb-1" for="item-weight">Weight <span class="text-ink-faint">(coins)</span></label>
         <input id="item-weight" class="input w-full" type="number" step="any" bind:value={weight} placeholder="10" />
@@ -248,6 +269,11 @@
       <div>
         <label class="block text-sm text-ink mb-1" for="item-cost">Cost <span class="text-ink-faint">(GP)</span></label>
         <input id="item-cost" class="input w-full" type="number" step="any" bind:value={costGp} placeholder="25" />
+      </div>
+      <div>
+        <label class="block text-sm text-ink mb-1" for="item-capacity">Capacity <span class="text-ink-faint">(coins)</span></label>
+        <input id="item-capacity" class="input w-full" type="number" bind:value={capacity} placeholder="400" />
+        <p class="text-xs text-ink-faint mt-0.5">Container capacity (backpacks, sacks)</p>
       </div>
     </div>
 

@@ -1408,7 +1408,7 @@ async def equip_item(
 
     # Verify item is in inventory
     row = db.execute(
-        select(character_items.c.item_id)
+        select(character_items.c.item_id, character_items.c.container_item_id)
         .where(
             (character_items.c.character_id == character_id)
             & (character_items.c.item_id == item_id)
@@ -1416,6 +1416,21 @@ async def equip_item(
     ).first()
     if not row:
         raise HTTPException(status_code=404, detail="Item not in character's inventory")
+
+    # Block equipping items inside a dropped container
+    if row.container_item_id is not None:
+        container_dropped = db.execute(
+            select(character_items.c.dropped)
+            .where(
+                (character_items.c.character_id == character_id)
+                & (character_items.c.item_id == row.container_item_id)
+            )
+        ).scalar()
+        if container_dropped:
+            raise HTTPException(
+                status_code=400,
+                detail="Cannot equip an item from a dropped container — pick it up first",
+            )
 
     item = db.query(Item).filter(Item.id == item_id).first()
     if not item or not item.equippable:

@@ -331,6 +331,10 @@
     return targets;
   }
 
+  function isInDroppedContainer(entry) {
+    return entry.container_item_id != null && droppedContainerIds.has(entry.container_item_id);
+  }
+
   function fillPct(load, capacity) {
     return capacity > 0 ? Math.min(100, (load / capacity) * 100) : 0;
   }
@@ -522,9 +526,16 @@
                 on:click={() => adjustQty(cg.entry, 1)}
               >+</button>
               <button
-                class="btn-danger text-xs px-1.5 py-0.5 ml-1"
-                on:click={() => removeItem(cg.entry)}
-              >✕</button>
+                class="btn-ghost text-xs px-1.5 py-0.5"
+                on:click={() => returnToStash(cg.entry)}
+                title="Return to party stash (with contents)"
+              >Stash</button>
+              {#if cg.contents.length === 0}
+                <button
+                  class="btn-danger text-xs px-1.5 py-0.5 ml-1"
+                  on:click={() => removeItem(cg.entry)}
+                >✕</button>
+              {/if}
             </div>
           </div>
           <!-- Container contents -->
@@ -646,7 +657,7 @@
           title="Identify this item"
         >Identify</button>
       {/if}
-      {#if entry.item.equippable}
+      {#if entry.item.equippable && !isInDroppedContainer(entry)}
         {#if entry.slot}
           <button
             class="btn-ghost text-xs px-1.5 py-0.5"

@@ -228,7 +228,8 @@ export const METADATA_FIELD_REFERENCE = {
     { key: 'effect_failed', type: 'string', desc: 'Result on failed save (e.g. "25hp", "Death")' },
   ],
   tool: [
-    { key: 'capacity_slots', type: 'int', desc: 'Carrying capacity (backpacks, sacks)' },
+    { key: 'capacity', type: 'int', desc: 'Container capacity in coins of weight (backpacks, sacks) — set via Capacity field above' },
+    { key: 'fillable', type: 'bool', desc: 'Can hold liquids (waterskin, flask) — set via Fillable checkbox above' },
     { key: 'length_feet', type: 'int', desc: 'Length in feet (rope, poles)' },
     { key: 'light_radius', type: 'int', desc: 'Illumination radius in feet' },
     { key: 'duration_hours', type: 'number', desc: 'Burn time (torches, lanterns)' },
