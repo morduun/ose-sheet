@@ -39,7 +39,12 @@ class Campaign(Base):
     items = relationship("Item", back_populates="campaign", cascade="all, delete-orphan")
     character_classes = relationship("CharacterClass", back_populates="campaign", cascade="all, delete-orphan")
     monsters = relationship("Monster", back_populates="campaign", cascade="all, delete-orphan")
-    stash_items = relationship("Item", secondary=campaign_stash, backref="stash_campaigns")
+    stash_items = relationship(
+        "Item",
+        secondary=campaign_stash,
+        backref="stash_campaigns",
+        foreign_keys=[campaign_stash.c.campaign_id, campaign_stash.c.item_id],
+    )
 
     def __init__(self, **kwargs):
         """Generate invite code on creation if not provided."""

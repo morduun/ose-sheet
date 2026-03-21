@@ -204,6 +204,62 @@ async def join_campaign(
 # --- Party Stash Endpoints ---
 
 
+def _upsert_character_item(db: Session, character_id: int, item_id: int, quantity: int, container_item_id: int | None = None):
+    """Add to or create a character inventory entry, optionally inside a container."""
+    existing = db.execute(
+        select(character_items.c.quantity).where(
+            (character_items.c.character_id == character_id)
+            & (character_items.c.item_id == item_id)
+        )
+    ).scalar()
+    if existing is not None:
+        db.execute(
+            sa_update(character_items)
+            .where(
+                (character_items.c.character_id == character_id)
+                & (character_items.c.item_id == item_id)
+            )
+            .values(quantity=existing + quantity, container_item_id=container_item_id)
+        )
+    else:
+        db.execute(
+            insert(character_items).values(
+                character_id=character_id,
+                item_id=item_id,
+                quantity=quantity,
+                container_item_id=container_item_id,
+            )
+        )
+
+
+def _upsert_stash(db: Session, campaign_id: int, item_id: int, quantity: int, container_item_id: int | None = None):
+    """Add to or update stash quantity for an item, optionally inside a container."""
+    existing = db.execute(
+        select(campaign_stash.c.quantity).where(
+            (campaign_stash.c.campaign_id == campaign_id)
+            & (campaign_stash.c.item_id == item_id)
+        )
+    ).scalar()
+    if existing is not None:
+        db.execute(
+            sa_update(campaign_stash)
+            .where(
+                (campaign_stash.c.campaign_id == campaign_id)
+                & (campaign_stash.c.item_id == item_id)
+            )
+            .values(quantity=existing + quantity, container_item_id=container_item_id)
+        )
+    else:
+        db.execute(
+            insert(campaign_stash).values(
+                campaign_id=campaign_id,
+                item_id=item_id,
+                quantity=quantity,
+                container_item_id=container_item_id,
+            )
+        )
+
+
 def _get_campaign_or_404(db: Session, campaign_id: int) -> Campaign:
     """Helper to fetch a campaign or raise 404."""
     campaign = db.query(Campaign).filter(Campaign.id == campaign_id).first()
@@ -436,6 +492,9 @@ async def take_from_stash(
             detail=f"Not enough in stash (available: {stash_qty})",
         )
 
+    item = db.query(Item).filter(Item.id == item_id).first()
+    is_container = bool(item and (item.item_metadata or {}).get("capacity"))
+
     # Decrement stash
     new_stash_qty = stash_qty - req.quantity
     if new_stash_qty <= 0:
@@ -456,34 +515,37 @@ async def take_from_stash(
         )
 
     # Increment character inventory
-    char_qty = db.execute(
-        select(character_items.c.quantity).where(
-            (character_items.c.character_id == req.character_id)
-            & (character_items.c.item_id == item_id)
-        )
-    ).scalar()
+    _upsert_character_item(db, req.character_id, item_id, req.quantity)
 
-    if char_qty is not None:
-        db.execute(
-            sa_update(character_items)
-            .where(
-                (character_items.c.character_id == req.character_id)
-                & (character_items.c.item_id == item_id)
+    # If this is a container, also take all contents from stash
+    contents_moved = []
+    if is_container:
+        content_rows = db.execute(
+            select(campaign_stash.c.item_id, campaign_stash.c.quantity).where(
+                (campaign_stash.c.campaign_id == campaign_id)
+                & (campaign_stash.c.container_item_id == item_id)
             )
-            .values(quantity=char_qty + req.quantity)
-        )
-    else:
-        db.execute(
-            insert(character_items).values(
-                character_id=req.character_id,
-                item_id=item_id,
-                quantity=req.quantity,
+        ).fetchall()
+
+        for crow in content_rows:
+            # Add to character inventory inside the container
+            _upsert_character_item(db, req.character_id, crow.item_id, crow.quantity, container_item_id=item_id)
+            # Remove from stash
+            db.execute(
+                sa_delete(campaign_stash).where(
+                    (campaign_stash.c.campaign_id == campaign_id)
+                    & (campaign_stash.c.item_id == crow.item_id)
+                )
             )
-        )
+            content_item = db.query(Item).filter(Item.id == crow.item_id).first()
+            if content_item:
+                contents_moved.append(content_item.name)
 
     db.commit()
-    item = db.query(Item).filter(Item.id == item_id).first()
-    return {"message": f"{character.name} took {req.quantity} {item.name} from the stash"}
+    msg = f"{character.name} took {req.quantity} {item.name} from the stash"
+    if contents_moved:
+        msg += f" (with {', '.join(contents_moved)})"
+    return {"message": msg}
 
 
 @router.post("/{campaign_id}/stash/{item_id}/return", response_model=dict)
@@ -521,19 +583,47 @@ async def return_to_stash(
         )
 
     # Check character inventory quantity
-    char_qty = db.execute(
-        select(character_items.c.quantity).where(
+    char_row = db.execute(
+        select(character_items.c.quantity, character_items.c.container_item_id).where(
             (character_items.c.character_id == req.character_id)
             & (character_items.c.item_id == item_id)
         )
-    ).scalar()
+    ).first()
+    char_qty = char_row.quantity if char_row else None
     if char_qty is None or char_qty < req.quantity:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Character doesn't have enough of this item (has: {char_qty or 0})",
         )
 
-    # Decrement character inventory
+    item = db.query(Item).filter(Item.id == item_id).first()
+    is_container = bool(item and (item.item_metadata or {}).get("capacity"))
+
+    # If this is a container, also return all contents to stash
+    contents_moved = []
+    if is_container:
+        content_rows = db.execute(
+            select(character_items.c.item_id, character_items.c.quantity).where(
+                (character_items.c.character_id == req.character_id)
+                & (character_items.c.container_item_id == item_id)
+            )
+        ).fetchall()
+
+        for crow in content_rows:
+            # Add to stash with container_item_id preserved
+            _upsert_stash(db, campaign_id, crow.item_id, crow.quantity, container_item_id=item_id)
+            # Remove from character inventory
+            db.execute(
+                sa_delete(character_items).where(
+                    (character_items.c.character_id == req.character_id)
+                    & (character_items.c.item_id == crow.item_id)
+                )
+            )
+            content_item = db.query(Item).filter(Item.id == crow.item_id).first()
+            if content_item:
+                contents_moved.append(content_item.name)
+
+    # Decrement character inventory for the item itself
     new_char_qty = char_qty - req.quantity
     if new_char_qty <= 0:
         db.execute(
@@ -552,35 +642,14 @@ async def return_to_stash(
             .values(quantity=new_char_qty)
         )
 
-    # Increment stash
-    stash_qty = db.execute(
-        select(campaign_stash.c.quantity).where(
-            (campaign_stash.c.campaign_id == campaign_id)
-            & (campaign_stash.c.item_id == item_id)
-        )
-    ).scalar()
-
-    if stash_qty is not None:
-        db.execute(
-            sa_update(campaign_stash)
-            .where(
-                (campaign_stash.c.campaign_id == campaign_id)
-                & (campaign_stash.c.item_id == item_id)
-            )
-            .values(quantity=stash_qty + req.quantity)
-        )
-    else:
-        db.execute(
-            insert(campaign_stash).values(
-                campaign_id=campaign_id,
-                item_id=item_id,
-                quantity=req.quantity,
-            )
-        )
+    # Add the item itself to stash (container goes as a loose stash item)
+    _upsert_stash(db, campaign_id, item_id, req.quantity)
 
     db.commit()
-    item = db.query(Item).filter(Item.id == item_id).first()
-    return {"message": f"{character.name} returned {req.quantity} {item.name} to the stash"}
+    msg = f"{character.name} returned {req.quantity} {item.name} to the stash"
+    if contents_moved:
+        msg += f" (with {', '.join(contents_moved)})"
+    return {"message": msg}
 
 
 # --- Referee Panel Endpoint ---

@@ -25,6 +25,7 @@ campaign_stash = Table(
     Column("campaign_id", Integer, ForeignKey("campaigns.id", ondelete="CASCADE"), primary_key=True),
     Column("item_id", Integer, ForeignKey("items.id", ondelete="CASCADE"), primary_key=True),
     Column("quantity", Integer, default=1),
+    Column("container_item_id", Integer, ForeignKey("items.id"), nullable=True),
 )
 
 
