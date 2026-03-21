@@ -113,6 +113,20 @@
     ? `${effectiveMovement}' (${Math.floor(effectiveMovement / 3)}')`
     : (character?.movement_rate ?? '?');
 
+  // --- Container grouping ---
+  $: containerEntries = inventory.filter(e => (e.item?.item_metadata?.capacity ?? 0) > 0);
+  $: carriedItems = inventory.filter(e =>
+    !e.container_item_id && !(e.item?.item_metadata?.capacity > 0)
+  );
+  $: containerGroups = containerEntries.map(c => {
+    const contents = inventory.filter(e => e.container_item_id === c.item.id);
+    const load = contents.reduce((sum, e) => sum + ((e.item?.weight ?? 0) * e.quantity), 0);
+    return { entry: c, contents, load, capacity: c.item.item_metadata.capacity };
+  });
+
+  // --- Fill state ---
+  const FILL_LABELS = { full: 'Full', half: 'Half', empty: 'Empty' };
+
   // --- Currency ---
   $: hasCoins = coinLabels.some(c => (character?.[c.key] ?? 0) > 0);
 
@@ -388,47 +402,103 @@
         </div>
       {/if}
 
-      <!-- 7. Full Inventory -->
+      <!-- 7. Full Inventory (grouped by container) -->
       {#if inventory.length > 0}
         <div>
           <h2 class="section-title print:text-black">Inventory</h2>
-          <table class="w-full text-sm">
-            <thead>
-              <tr class="border-b border-ink-faint print:border-gray-300">
-                <th class="text-left py-1 text-ink-faint print:text-gray-500 font-normal">Item</th>
-                <th class="text-left py-1 text-ink-faint print:text-gray-500 font-normal">Type</th>
-                <th class="text-left py-1 text-ink-faint print:text-gray-500 font-normal">Slot</th>
-                <th class="text-right py-1 text-ink-faint print:text-gray-500 font-normal">Wt.</th>
-                <th class="text-right py-1 text-ink-faint print:text-gray-500 font-normal">Qty</th>
-              </tr>
-            </thead>
-            <tbody>
-              {#each inventory as entry}
-                {@const item = entry.item}
-                {@const displayName = (!entry.identified && item?.unidentified_name) ? item.unidentified_name : (item?.name ?? 'Unknown')}
-                {@const weight = item?.item_metadata?.weight ?? 0}
-                <tr class="border-b border-parchment-200 print:border-gray-200 last:border-0">
-                  <td class="py-1 text-ink print:text-black">
-                    {displayName}
-                    {#if !entry.identified && item?.unidentified_name}
-                      <span class="text-xs text-ink-faint print:text-gray-500">(?)</span>
-                    {/if}
-                  </td>
-                  <td class="py-1 text-ink-faint print:text-gray-500">{item?.item_type ?? ''}</td>
-                  <td class="py-1 text-ink-faint print:text-gray-500">{entry.slot ? slotLabel(entry.slot) : ''}</td>
-                  <td class="py-1 text-ink print:text-black text-right">{weight > 0 ? weight : ''}</td>
-                  <td class="py-1 text-ink print:text-black text-right">{entry.quantity}</td>
+
+          <!-- Carried items (not in any container) -->
+          {#if carriedItems.length > 0}
+            <table class="w-full text-sm mb-3">
+              <thead>
+                <tr class="border-b border-ink-faint print:border-gray-300">
+                  <th class="text-left py-1 text-ink-faint print:text-gray-500 font-normal">Carried</th>
+                  <th class="text-left py-1 text-ink-faint print:text-gray-500 font-normal">Type</th>
+                  <th class="text-left py-1 text-ink-faint print:text-gray-500 font-normal">Slot</th>
+                  <th class="text-right py-1 text-ink-faint print:text-gray-500 font-normal">Wt.</th>
+                  <th class="text-right py-1 text-ink-faint print:text-gray-500 font-normal">Qty</th>
                 </tr>
-              {/each}
-            </tbody>
-            <tfoot>
-              <tr class="border-t border-ink-faint print:border-gray-300">
-                <td colspan="3" class="py-1 text-xs text-ink-faint print:text-gray-500 text-right">Total weight:</td>
-                <td class="py-1 text-xs font-medium text-ink print:text-black text-right">{totalWeight}</td>
-                <td></td>
-              </tr>
-            </tfoot>
-          </table>
+              </thead>
+              <tbody>
+                {#each carriedItems as entry}
+                  {@const item = entry.item}
+                  {@const displayName = (!entry.identified && item?.unidentified_name) ? item.unidentified_name : (item?.name ?? 'Unknown')}
+                  {@const weight = item?.weight ?? 0}
+                  <tr class="border-b border-parchment-200 print:border-gray-200 last:border-0">
+                    <td class="py-1 text-ink print:text-black">
+                      {displayName}
+                      {#if !entry.identified && item?.unidentified_name}
+                        <span class="text-xs text-ink-faint print:text-gray-500">(?)</span>
+                      {/if}
+                      {#if item?.item_metadata?.fillable}
+                        <span class="text-xs text-ink-faint print:text-gray-500 ml-1">
+                          ({entry.state?.contents ?? ''}{entry.state?.contents && entry.state?.fill ? ', ' : ''}{FILL_LABELS[entry.state?.fill] ?? ''})
+                        </span>
+                      {/if}
+                    </td>
+                    <td class="py-1 text-ink-faint print:text-gray-500">{item?.item_type ?? ''}</td>
+                    <td class="py-1 text-ink-faint print:text-gray-500">{entry.slot ? slotLabel(entry.slot) : ''}</td>
+                    <td class="py-1 text-ink print:text-black text-right">{weight > 0 ? weight : ''}</td>
+                    <td class="py-1 text-ink print:text-black text-right">{entry.quantity}</td>
+                  </tr>
+                {/each}
+              </tbody>
+            </table>
+          {/if}
+
+          <!-- Container sections -->
+          {#each containerGroups as cg}
+            {@const isDropped = cg.entry.dropped}
+            <div class="mb-3" class:opacity-50={isDropped}>
+              <div class="text-sm font-medium text-ink print:text-black border-b border-ink-faint print:border-gray-300 pb-1 mb-1 flex justify-between">
+                <span>
+                  {cg.entry.item.name}
+                  <span class="text-xs text-ink-faint print:text-gray-500 font-normal ml-1">
+                    {Math.round(cg.load)} / {cg.capacity} cn
+                  </span>
+                  {#if isDropped}
+                    <span class="text-xs text-ink-faint print:text-gray-500 font-normal ml-1">(Dropped)</span>
+                  {/if}
+                </span>
+              </div>
+              {#if cg.contents.length > 0}
+                <table class="w-full text-sm">
+                  <tbody>
+                    {#each cg.contents as entry}
+                      {@const item = entry.item}
+                      {@const displayName = (!entry.identified && item?.unidentified_name) ? item.unidentified_name : (item?.name ?? 'Unknown')}
+                      {@const weight = item?.weight ?? 0}
+                      <tr class="border-b border-parchment-200 print:border-gray-200 last:border-0">
+                        <td class="py-0.5 text-ink print:text-black pl-4">
+                          {displayName}
+                          {#if !entry.identified && item?.unidentified_name}
+                            <span class="text-xs text-ink-faint print:text-gray-500">(?)</span>
+                          {/if}
+                          {#if item?.item_metadata?.fillable}
+                            <span class="text-xs text-ink-faint print:text-gray-500 ml-1">
+                              ({entry.state?.contents ?? ''}{entry.state?.contents && entry.state?.fill ? ', ' : ''}{FILL_LABELS[entry.state?.fill] ?? ''})
+                            </span>
+                          {/if}
+                        </td>
+                        <td class="py-0.5 text-ink-faint print:text-gray-500">{item?.item_type ?? ''}</td>
+                        <td class="py-0.5 text-ink-faint print:text-gray-500">{entry.slot ? slotLabel(entry.slot) : ''}</td>
+                        <td class="py-0.5 text-ink print:text-black text-right">{weight > 0 ? weight : ''}</td>
+                        <td class="py-0.5 text-ink print:text-black text-right">{entry.quantity}</td>
+                      </tr>
+                    {/each}
+                  </tbody>
+                </table>
+              {:else}
+                <p class="text-xs text-ink-faint print:text-gray-500 pl-4">Empty</p>
+              {/if}
+            </div>
+          {/each}
+
+          <!-- Total weight footer -->
+          <div class="border-t border-ink-faint print:border-gray-300 pt-1 text-xs text-right">
+            <span class="text-ink-faint print:text-gray-500">Total carried weight:</span>
+            <span class="font-medium text-ink print:text-black ml-1">{totalWeight}</span>
+          </div>
         </div>
       {/if}
 
