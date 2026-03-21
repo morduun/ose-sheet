@@ -81,6 +81,7 @@ class Character(Base):
         "Item",
         secondary="character_items",
         back_populates="characters",
+        foreign_keys="[character_items.c.character_id, character_items.c.item_id]",
     )
     spells = relationship(
         "Spell",

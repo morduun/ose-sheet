@@ -24,6 +24,9 @@
   let showSlotChoice = false;
   let slotChoiceEntry = null;
 
+  // Container UI state
+  let collapsedContainers = new Set();
+
   // Currency fields
   const currencies = [
     { key: 'cp', field: 'copper' },
@@ -40,7 +43,32 @@
   const ENC_TABLE = [
     [400, 120], [600, 90], [800, 60], [1600, 30],
   ];
-  $: itemWeight = items.reduce((sum, e) => sum + ((e.item?.weight ?? 0) * e.quantity), 0);
+
+  // Identify containers and dropped state
+  $: containerEntries = items.filter(e => (e.item?.item_metadata?.capacity ?? 0) > 0);
+  $: droppedContainerIds = new Set(
+    items.filter(e => e.dropped && (e.item?.item_metadata?.capacity ?? 0) > 0).map(e => e.item.id)
+  );
+
+  // Items NOT in any container (and not themselves containers)
+  $: carriedItems = items.filter(e =>
+    !e.container_item_id && !(e.item?.item_metadata?.capacity > 0)
+  );
+
+  // Build container groups
+  $: containerGroups = containerEntries.map(c => {
+    const contents = items.filter(e => e.container_item_id === c.item.id);
+    const load = contents.reduce((sum, e) => sum + ((e.item?.weight ?? 0) * e.quantity), 0);
+    const capacity = c.item.item_metadata.capacity;
+    return { entry: c, contents, load, capacity };
+  });
+
+  // Encumbrance excluding dropped containers and their contents
+  $: itemWeight = items.reduce((sum, e) => {
+    if (e.dropped) return sum;
+    if (droppedContainerIds.has(e.container_item_id)) return sum;
+    return sum + ((e.item?.weight ?? 0) * e.quantity);
+  }, 0);
   $: coinWeight = (character.copper ?? 0) + (character.silver ?? 0)
     + (character.electrum ?? 0) + (character.gold ?? 0) + (character.platinum ?? 0);
   $: encumbrance = Math.round(itemWeight + coinWeight);
@@ -135,7 +163,13 @@
       await api.patch(`/characters/${character.id}/items/${item.item.id}`, {
         quantity: newQty,
       });
-      await loadItems();
+      // Update locally to avoid full re-fetch and scroll jump
+      item.quantity = newQty;
+      items = items;
+      // If this item is equipped (e.g. ammo), refresh character to recompute weapons
+      if (item.slot) {
+        dispatch('ac-changed');
+      }
     } catch (e) {
       alert(e.message);
     }
@@ -176,10 +210,8 @@
   }
 
   function handleEquipClick(entry) {
-    // Ammo goes straight to ammo slot
     if (entry.item.item_type === 'ammo') {
       equipItem(entry);
-    // For weapons: if main-hand is occupied, offer choice
     } else if (entry.item.item_type === 'weapon' && equipped['main-hand']) {
       slotChoiceEntry = entry;
       showSlotChoice = true;
@@ -245,6 +277,108 @@
       alert(e.message);
     } finally {
       savingCurrency = false;
+    }
+  }
+
+  // --- Container functions ---
+
+  async function moveItem(entry, containerItemId) {
+    try {
+      items = await api.post(
+        `/characters/${character.id}/items/${entry.item.id}/move`,
+        { container_item_id: containerItemId }
+      );
+    } catch (e) {
+      alert(e.message);
+    }
+  }
+
+  async function toggleDrop(containerEntry) {
+    try {
+      items = await api.post(
+        `/characters/${character.id}/items/${containerEntry.item.id}/drop`,
+        { dropped: !containerEntry.dropped }
+      );
+      dispatch('ac-changed');
+    } catch (e) {
+      alert(e.message);
+    }
+  }
+
+  function toggleCollapse(containerId) {
+    if (collapsedContainers.has(containerId)) {
+      collapsedContainers.delete(containerId);
+    } else {
+      collapsedContainers.add(containerId);
+    }
+    collapsedContainers = collapsedContainers;
+  }
+
+  function containerMoveTargets(entry) {
+    // Build list of move targets: "Carried" + each non-dropped container (excluding current)
+    const targets = [{ id: null, label: 'Carried', full: false }];
+    for (const cg of containerGroups) {
+      if (cg.entry.item.id === entry.container_item_id) continue; // already here
+      if (cg.entry.dropped) continue; // can't put items in dropped containers
+      const itemWt = (entry.item?.weight ?? 0) * entry.quantity;
+      const wouldExceed = cg.load + itemWt > cg.capacity;
+      targets.push({
+        id: cg.entry.item.id,
+        label: `${cg.entry.item.name} (${Math.round(cg.load)}/${cg.capacity})`,
+        full: wouldExceed,
+      });
+    }
+    return targets;
+  }
+
+  function fillPct(load, capacity) {
+    return capacity > 0 ? Math.min(100, (load / capacity) * 100) : 0;
+  }
+
+  // --- Fillable item functions ---
+
+  const FILL_STATES = ['full', 'half', 'empty'];
+  const FILL_ICONS = { full: '\u25CF', half: '\u25D1', empty: '\u25CB' };
+  const FILL_COLORS = { full: 'text-blue-700', half: 'text-blue-400', empty: 'text-ink-faint' };
+
+  function isFillable(entry) {
+    return !!(entry.item?.item_metadata?.fillable);
+  }
+
+  function getFill(entry) {
+    return entry.state?.fill ?? 'empty';
+  }
+
+  function getContents(entry) {
+    return entry.state?.contents ?? '';
+  }
+
+  async function cycleFill(entry) {
+    const current = getFill(entry);
+    const idx = FILL_STATES.indexOf(current);
+    const next = FILL_STATES[(idx + 1) % FILL_STATES.length];
+    try {
+      const updated = await api.patch(
+        `/characters/${character.id}/items/${entry.item.id}/state`,
+        { state: { fill: next } }
+      );
+      entry.state = updated.state;
+      items = items;
+    } catch (e) {
+      alert(e.message);
+    }
+  }
+
+  async function saveContents(entry, value) {
+    try {
+      const updated = await api.patch(
+        `/characters/${character.id}/items/${entry.item.id}/state`,
+        { state: { contents: value } }
+      );
+      entry.state = updated.state;
+      items = items;
+    } catch (e) {
+      alert(e.message);
     }
   }
 </script>
@@ -326,123 +460,241 @@
     {:else if items.length === 0}
       <p class="text-ink-faint text-sm text-center py-4">No items in inventory.</p>
     {:else}
-      <div class="space-y-2">
-        {#each items as entry}
-          <div class="flex items-start gap-3 border-b border-parchment-200 pb-2 last:border-0">
+      <!-- Carried items (not in any container, not containers themselves) -->
+      {#if carriedItems.length > 0}
+        <div class="mb-4">
+          <div class="text-xs text-ink-faint uppercase tracking-wide mb-2">Carried</div>
+          <div class="space-y-2">
+            {#each carriedItems as entry (entry.item.id)}
+              {@render itemRow(entry)}
+            {/each}
+          </div>
+        </div>
+      {/if}
+
+      <!-- Container sections -->
+      {#each containerGroups as cg (cg.entry.item.id)}
+        {@const pct = fillPct(cg.load, cg.capacity)}
+        {@const isDropped = cg.entry.dropped}
+        {@const isCollapsed = collapsedContainers.has(cg.entry.item.id)}
+        <div class="mb-4 border border-parchment-200 rounded-sm" class:opacity-50={isDropped}>
+          <!-- Container header -->
+          <div class="flex items-center gap-2 px-3 py-2 bg-parchment-100/50">
+            <button
+              class="text-ink-faint text-xs w-4 shrink-0"
+              on:click={() => toggleCollapse(cg.entry.item.id)}
+              title={isCollapsed ? 'Expand' : 'Collapse'}
+            >{isCollapsed ? '\u25B6' : '\u25BC'}</button>
             <div class="flex-1 min-w-0">
               <div class="flex items-center gap-2">
-                {#if isGM && !entry.identified && entry.item.unidentified_name}
-                  <span class="text-sm text-ink" class:font-bold={entry.slot}>
-                    {entry.item.unidentified_name}
-                    <span class="text-ink-faint">({entry.item.name})</span>
-                  </span>
-                {:else}
-                  <span class="text-sm text-ink" class:font-bold={entry.slot}>{entry.item.name}</span>
-                {/if}
-                {#if entry.slot}
-                  <Badge label={slotLabels[entry.slot] ?? entry.slot} />
-                {/if}
-                {#if !entry.identified && (entry.item.unidentified_name || (isGM && entry.item.unidentified_name))}
-                  <Badge label="Unidentified" variant="gm" />
+                <span class="text-sm font-medium text-ink">{cg.entry.item.name}</span>
+                <span class="text-xs text-ink-faint">{Math.round(cg.load)} / {cg.capacity} cn</span>
+                {#if isDropped}
+                  <Badge label="Dropped" />
                 {/if}
               </div>
-              {#if entry.item.description_player}
-                <div class="text-xs text-ink-faint mt-0.5">{entry.item.description_player}</div>
-              {/if}
-              <div class="text-xs text-ink-faint">
-                {itemTypeLabel(entry.item)}
-                {#if normalizeQualities(entry.item.item_metadata?.qualities).length}
-                  <span class="ml-1">
-                    {#each normalizeQualities(entry.item.item_metadata?.qualities) as q}
-                      <span
-                        class="inline-block px-1 rounded bg-parchment-200 text-ink-faint ml-0.5"
-                        title={WEAPON_QUALITIES[q] ?? ''}
-                      >{q}</span>
-                    {/each}
-                  </span>
-                {/if}
+              <!-- Fullness meter -->
+              <div class="w-full h-1.5 bg-parchment-200 rounded overflow-hidden mt-1">
+                <div
+                  class="h-full rounded transition-all duration-300"
+                  class:bg-green-600={pct <= 50}
+                  class:bg-yellow-600={pct > 50 && pct <= 75}
+                  class:bg-orange-600={pct > 75 && pct <= 90}
+                  class:bg-red-700={pct > 90}
+                  style="width: {pct}%"
+                ></div>
               </div>
-              {#if entry.item.item_metadata?.onset || entry.item.item_metadata?.effect_failed}
-                <div class="text-xs text-ink-faint">
-                  {#if entry.item.item_metadata.onset}<span>Onset: {entry.item.item_metadata.onset}</span>{/if}
-                  {#if entry.item.item_metadata.effect_failed}<span class="ml-2">Fail: {entry.item.item_metadata.effect_failed}</span>{/if}
-                  {#if entry.item.item_metadata.save != null}<span class="ml-2">Save: {entry.item.item_metadata.save}+</span>{/if}
-                </div>
-              {/if}
-              <!-- Secrets: GM sees all with toggles, players see only revealed -->
-              {#if isGM && entry.item.secrets?.length}
-                <div class="mt-1 space-y-0.5">
-                  {#each entry.item.secrets as secret, idx}
-                    <div class="flex items-center gap-1.5 text-xs">
-                      <button
-                        class="shrink-0 w-5 h-5 flex items-center justify-center rounded border {secret.revealed ? 'border-green-600 text-green-700 bg-green-50' : 'border-ink-faint text-ink-faint bg-parchment-100'}"
-                        title={secret.revealed ? 'Click to hide from players' : 'Click to reveal to players'}
-                        on:click={() => toggleSecret(entry.item.id, idx, secret.revealed)}
-                      >
-                        {secret.revealed ? '&#x1f441;' : '&#x2022;'}
-                      </button>
-                      <span class="italic {secret.revealed ? 'text-ink' : 'text-ink-faint'}">{secret.text}</span>
-                    </div>
-                  {/each}
-                </div>
-              {:else if !isGM && entry.item.revealed_secrets?.length}
-                {#each entry.item.revealed_secrets as secret}
-                  <div class="text-xs text-ink-faint mt-0.5 italic">{secret}</div>
-                {/each}
-              {/if}
-              <!-- GM-only description -->
-              {#if isGM && entry.item.description_gm}
-                <div class="text-xs text-amber-700 mt-0.5">{entry.item.description_gm}</div>
-              {/if}
             </div>
             <div class="flex items-center gap-1 shrink-0">
-              {#if isGM && !entry.identified && entry.item.unidentified_name}
-                <button
-                  class="btn text-xs px-1.5 py-0.5"
-                  on:click={() => identifyItem(entry)}
-                  title="Identify this item"
-                >Identify</button>
-              {/if}
-              {#if entry.item.equippable}
-                {#if entry.slot}
-                  <button
-                    class="btn-ghost text-xs px-1.5 py-0.5"
-                    on:click={() => unequipItem(entry)}
-                    title="Unequip"
-                  >Unequip</button>
-                {:else}
-                  <button
-                    class="btn text-xs px-1.5 py-0.5"
-                    on:click={() => handleEquipClick(entry)}
-                    title="Equip"
-                  >Equip</button>
-                {/if}
-              {/if}
+              <button
+                class="text-xs px-2 py-0.5 rounded border transition-colors {isDropped
+                  ? 'border-green-700 text-green-800 hover:bg-green-50'
+                  : 'border-red-700 text-red-800 hover:bg-red-50'}"
+                on:click={() => toggleDrop(cg.entry)}
+              >{isDropped ? 'Pick Up' : 'Drop'}</button>
               <button
                 class="btn-ghost text-xs px-1.5 py-0.5"
-                on:click={() => adjustQty(entry, -1)}
+                on:click={() => adjustQty(cg.entry, -1)}
               >−</button>
-              <span class="text-sm text-ink w-6 text-center">{entry.quantity}</span>
+              <span class="text-sm text-ink w-6 text-center">{cg.entry.quantity}</span>
               <button
                 class="btn-ghost text-xs px-1.5 py-0.5"
-                on:click={() => adjustQty(entry, 1)}
+                on:click={() => adjustQty(cg.entry, 1)}
               >+</button>
               <button
-                class="btn-ghost text-xs px-1.5 py-0.5"
-                on:click={() => returnToStash(entry)}
-                title="Return to party stash"
-              >Stash</button>
-              <button
                 class="btn-danger text-xs px-1.5 py-0.5 ml-1"
-                on:click={() => removeItem(entry)}
+                on:click={() => removeItem(cg.entry)}
               >✕</button>
             </div>
           </div>
-        {/each}
-      </div>
+          <!-- Container contents -->
+          {#if !isCollapsed}
+            <div class="px-3 py-2 space-y-2">
+              {#if cg.contents.length === 0}
+                <p class="text-ink-faint text-xs text-center py-2">Empty</p>
+              {:else}
+                {#each cg.contents as entry (entry.item.id)}
+                  {@render itemRow(entry)}
+                {/each}
+              {/if}
+            </div>
+          {/if}
+        </div>
+      {/each}
     {/if}
   </div>
 </div>
+
+{#snippet itemRow(entry)}
+  <div class="flex items-start gap-3 border-b border-parchment-200 pb-2 last:border-0">
+    <div class="flex-1 min-w-0">
+      <div class="flex items-center gap-2">
+        {#if isGM && !entry.identified && entry.item.unidentified_name}
+          <span class="text-sm text-ink" class:font-bold={entry.slot}>
+            {entry.item.unidentified_name}
+            <span class="text-ink-faint">({entry.item.name})</span>
+          </span>
+        {:else}
+          <span class="text-sm text-ink" class:font-bold={entry.slot}>{entry.item.name}</span>
+        {/if}
+        {#if entry.slot}
+          <Badge label={slotLabels[entry.slot] ?? entry.slot} />
+        {/if}
+        {#if !entry.identified && (entry.item.unidentified_name || (isGM && entry.item.unidentified_name))}
+          <Badge label="Unidentified" variant="gm" />
+        {/if}
+        {#if isFillable(entry)}
+          {@const fill = getFill(entry)}
+          {@const contents = getContents(entry)}
+          <button
+            class="text-sm cursor-pointer {FILL_COLORS[fill]}"
+            on:click={() => cycleFill(entry)}
+            title="{fill}{contents ? ` — ${contents}` : ''} (click to cycle)"
+          >{FILL_ICONS[fill]}</button>
+          <span class="text-xs text-ink-faint italic">
+            {#if contents}{contents}, {/if}{fill}
+          </span>
+        {/if}
+      </div>
+      {#if isFillable(entry)}
+        <div class="flex items-center gap-1 mt-0.5">
+          <input
+            class="input text-xs py-0 px-1 w-28"
+            type="text"
+            placeholder="Contents…"
+            value={getContents(entry)}
+            on:blur={(e) => saveContents(entry, e.target.value)}
+            on:keydown={(e) => e.key === 'Enter' && e.target.blur()}
+          />
+        </div>
+      {/if}
+      {#if entry.item.description_player}
+        <div class="text-xs text-ink-faint mt-0.5">{entry.item.description_player}</div>
+      {/if}
+      <div class="text-xs text-ink-faint">
+        {itemTypeLabel(entry.item)}
+        {#if entry.item.weight}
+          <span class="ml-1">{entry.item.weight} cn</span>
+        {/if}
+        {#if normalizeQualities(entry.item.item_metadata?.qualities).length}
+          <span class="ml-1">
+            {#each normalizeQualities(entry.item.item_metadata?.qualities) as q}
+              <span
+                class="inline-block px-1 rounded bg-parchment-200 text-ink-faint ml-0.5"
+                title={WEAPON_QUALITIES[q] ?? ''}
+              >{q}</span>
+            {/each}
+          </span>
+        {/if}
+      </div>
+      {#if entry.item.item_metadata?.onset || entry.item.item_metadata?.effect_failed}
+        <div class="text-xs text-ink-faint">
+          {#if entry.item.item_metadata.onset}<span>Onset: {entry.item.item_metadata.onset}</span>{/if}
+          {#if entry.item.item_metadata.effect_failed}<span class="ml-2">Fail: {entry.item.item_metadata.effect_failed}</span>{/if}
+          {#if entry.item.item_metadata.save != null}<span class="ml-2">Save: {entry.item.item_metadata.save}+</span>{/if}
+        </div>
+      {/if}
+      {#if isGM && entry.item.secrets?.length}
+        <div class="mt-1 space-y-0.5">
+          {#each entry.item.secrets as secret, idx}
+            <div class="flex items-center gap-1.5 text-xs">
+              <button
+                class="shrink-0 w-5 h-5 flex items-center justify-center rounded border {secret.revealed ? 'border-green-600 text-green-700 bg-green-50' : 'border-ink-faint text-ink-faint bg-parchment-100'}"
+                title={secret.revealed ? 'Click to hide from players' : 'Click to reveal to players'}
+                on:click={() => toggleSecret(entry.item.id, idx, secret.revealed)}
+              >
+                {secret.revealed ? '&#x1f441;' : '&#x2022;'}
+              </button>
+              <span class="italic {secret.revealed ? 'text-ink' : 'text-ink-faint'}">{secret.text}</span>
+            </div>
+          {/each}
+        </div>
+      {:else if !isGM && entry.item.revealed_secrets?.length}
+        {#each entry.item.revealed_secrets as secret}
+          <div class="text-xs text-ink-faint mt-0.5 italic">{secret}</div>
+        {/each}
+      {/if}
+      {#if isGM && entry.item.description_gm}
+        <div class="text-xs text-amber-700 mt-0.5">{entry.item.description_gm}</div>
+      {/if}
+    </div>
+    <div class="flex items-center gap-1 shrink-0">
+      {#if isGM && !entry.identified && entry.item.unidentified_name}
+        <button
+          class="btn text-xs px-1.5 py-0.5"
+          on:click={() => identifyItem(entry)}
+          title="Identify this item"
+        >Identify</button>
+      {/if}
+      {#if entry.item.equippable}
+        {#if entry.slot}
+          <button
+            class="btn-ghost text-xs px-1.5 py-0.5"
+            on:click={() => unequipItem(entry)}
+            title="Unequip"
+          >Unequip</button>
+        {:else}
+          <button
+            class="btn text-xs px-1.5 py-0.5"
+            on:click={() => handleEquipClick(entry)}
+            title="Equip"
+          >Equip</button>
+        {/if}
+      {/if}
+      <!-- Move to container dropdown -->
+      {#if containerEntries.length > 0 && !entry.slot && !(entry.item?.item_metadata?.capacity > 0)}
+        {@const targets = containerMoveTargets(entry)}
+        <select
+          class="input text-xs py-0.5 px-1 w-20"
+          value={entry.container_item_id ?? ''}
+          on:change={(e) => moveItem(entry, e.target.value === '' ? null : parseInt(e.target.value))}
+        >
+          {#each targets as t}
+            <option value={t.id ?? ''} disabled={t.full}>{t.label}</option>
+          {/each}
+        </select>
+      {/if}
+      <button
+        class="btn-ghost text-xs px-1.5 py-0.5"
+        on:click={() => adjustQty(entry, -1)}
+      >−</button>
+      <span class="text-sm text-ink w-6 text-center">{entry.quantity}</span>
+      <button
+        class="btn-ghost text-xs px-1.5 py-0.5"
+        on:click={() => adjustQty(entry, 1)}
+      >+</button>
+      <button
+        class="btn-ghost text-xs px-1.5 py-0.5"
+        on:click={() => returnToStash(entry)}
+        title="Return to party stash"
+      >Stash</button>
+      <button
+        class="btn-danger text-xs px-1.5 py-0.5 ml-1"
+        on:click={() => removeItem(entry)}
+      >✕</button>
+    </div>
+  </div>
+{/snippet}
 
 <!-- Add Item Modal -->
 <Modal bind:open={showAddModal} title="Add Item">

@@ -13,6 +13,9 @@ character_items = Table(
     Column("quantity", Integer, default=1),
     Column("slot", String, nullable=True),  # null = carried; "armor" | "shield" | "main-hand" | "off-hand"
     Column("identified", Boolean, default=False, server_default="0"),
+    Column("container_item_id", Integer, ForeignKey("items.id"), nullable=True),
+    Column("dropped", Boolean, default=False, server_default="0"),
+    Column("state", JSON, nullable=True),  # Per-character item state (e.g. fill, contents)
 )
 
 # Association table for campaign shared stash (party loot pool)
@@ -69,6 +72,7 @@ class Item(Base):
         "Character",
         secondary=character_items,
         back_populates="items",
+        foreign_keys=[character_items.c.character_id, character_items.c.item_id],
     )
 
     def __repr__(self):

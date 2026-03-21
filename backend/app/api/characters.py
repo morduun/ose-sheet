@@ -1216,6 +1216,9 @@ async def get_character_items(
             character_items.c.quantity,
             character_items.c.slot,
             character_items.c.identified,
+            character_items.c.container_item_id,
+            character_items.c.dropped,
+            character_items.c.state,
         )
         .where(character_items.c.character_id == character_id)
     ).fetchall()
@@ -1224,7 +1227,14 @@ async def get_character_items(
         return []
 
     item_info = {
-        row.item_id: {"quantity": row.quantity, "slot": row.slot, "identified": row.identified}
+        row.item_id: {
+            "quantity": row.quantity,
+            "slot": row.slot,
+            "identified": row.identified,
+            "container_item_id": row.container_item_id,
+            "dropped": row.dropped,
+            "state": row.state,
+        }
         for row in rows
     }
     items = db.query(Item).filter(Item.id.in_(item_info.keys())).all()
@@ -1238,6 +1248,9 @@ async def get_character_items(
                 quantity=item_info[i.id]["quantity"],
                 slot=item_info[i.id]["slot"],
                 identified=item_info[i.id]["identified"],
+                container_item_id=item_info[i.id]["container_item_id"],
+                dropped=item_info[i.id]["dropped"],
+                state=item_info[i.id]["state"],
             )
             for i in items
         ]
@@ -1248,6 +1261,9 @@ async def get_character_items(
             quantity=item_info[i.id]["quantity"],
             slot=item_info[i.id]["slot"],
             identified=item_info[i.id]["identified"],
+            container_item_id=item_info[i.id]["container_item_id"],
+            dropped=item_info[i.id]["dropped"],
+            state=item_info[i.id]["state"],
         )
         for i in items
     ]
@@ -1275,14 +1291,21 @@ async def update_item_quantity(
             detail="Only the character owner or campaign GM can update inventory",
         )
 
-    existing_qty = db.execute(
-        select(character_items.c.quantity).where(
+    existing = db.execute(
+        select(
+            character_items.c.quantity,
+            character_items.c.slot,
+            character_items.c.identified,
+            character_items.c.container_item_id,
+            character_items.c.dropped,
+            character_items.c.state,
+        ).where(
             (character_items.c.character_id == character_id) &
             (character_items.c.item_id == item_id)
         )
-    ).scalar()
+    ).first()
 
-    if existing_qty is None:
+    if existing is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Item not in character's inventory",
@@ -1299,7 +1322,15 @@ async def update_item_quantity(
     db.commit()
 
     item = db.query(Item).filter(Item.id == item_id).first()
-    return CharacterInventoryEntry(item=_item_to_public(item), quantity=qty_update.quantity)
+    return CharacterInventoryEntry(
+        item=_item_to_public(item),
+        quantity=qty_update.quantity,
+        slot=existing.slot,
+        identified=existing.identified,
+        container_item_id=existing.container_item_id,
+        dropped=existing.dropped,
+        state=existing.state,
+    )
 
 
 def _build_inventory(character_id: int, db: Session) -> list[CharacterInventoryEntry]:
@@ -1310,13 +1341,21 @@ def _build_inventory(character_id: int, db: Session) -> list[CharacterInventoryE
             character_items.c.quantity,
             character_items.c.slot,
             character_items.c.identified,
+            character_items.c.container_item_id,
+            character_items.c.dropped,
         )
         .where(character_items.c.character_id == character_id)
     ).fetchall()
     if not rows:
         return []
     item_info = {
-        row.item_id: {"quantity": row.quantity, "slot": row.slot, "identified": row.identified}
+        row.item_id: {
+            "quantity": row.quantity,
+            "slot": row.slot,
+            "identified": row.identified,
+            "container_item_id": row.container_item_id,
+            "dropped": row.dropped,
+        }
         for row in rows
     }
     items = db.query(Item).filter(Item.id.in_(item_info.keys())).all()
@@ -1326,6 +1365,8 @@ def _build_inventory(character_id: int, db: Session) -> list[CharacterInventoryE
             quantity=item_info[i.id]["quantity"],
             slot=item_info[i.id]["slot"],
             identified=item_info[i.id]["identified"],
+            container_item_id=item_info[i.id]["container_item_id"],
+            dropped=item_info[i.id]["dropped"],
         )
         for i in items
     ]
@@ -1384,12 +1425,65 @@ async def equip_item(
     if item.item_type == "armor":
         armor_type = (item.item_metadata or {}).get("armor_type", "")
         target_slot = "shield" if armor_type == "shield" else "armor"
+
+        # Block shield when two-handed weapon is equipped
+        if target_slot == "shield":
+            mh_row = db.execute(
+                select(character_items.c.item_id)
+                .where(
+                    (character_items.c.character_id == character_id)
+                    & (character_items.c.slot == "main-hand")
+                )
+            ).first()
+            if mh_row:
+                mh_item = db.query(Item).filter(Item.id == mh_row.item_id).first()
+                if mh_item and "two-handed" in (mh_item.item_metadata or {}).get("qualities", []):
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Cannot equip a shield while a two-handed weapon is in the main hand",
+                    )
     elif item.item_type == "weapon":
         requested = body.slot if body else None
         if requested and requested in ("main-hand", "off-hand"):
             target_slot = requested
         else:
             target_slot = "main-hand"
+
+        # Two-handed weapon validation
+        qualities = (item.item_metadata or {}).get("qualities", [])
+        is_two_handed = "two-handed" in qualities
+
+        if is_two_handed and target_slot == "off-hand":
+            raise HTTPException(
+                status_code=400,
+                detail="A two-handed weapon must be equipped in the main hand",
+            )
+
+        # Check current equipment for conflicts
+        current_slots = {
+            row.slot: row.item_id
+            for row in db.execute(
+                select(character_items.c.slot, character_items.c.item_id)
+                .where(
+                    (character_items.c.character_id == character_id)
+                    & (character_items.c.slot.in_(["main-hand", "off-hand"]))
+                )
+            ).fetchall()
+        }
+
+        if is_two_handed and "off-hand" in current_slots:
+            raise HTTPException(
+                status_code=400,
+                detail="Cannot equip a two-handed weapon while an off-hand item is equipped",
+            )
+
+        if target_slot == "off-hand" and "main-hand" in current_slots:
+            mh_item = db.query(Item).filter(Item.id == current_slots["main-hand"]).first()
+            if mh_item and "two-handed" in (mh_item.item_metadata or {}).get("qualities", []):
+                raise HTTPException(
+                    status_code=400,
+                    detail="Cannot equip an off-hand item while a two-handed weapon is in the main hand",
+                )
     elif item.item_type == "ammo":
         target_slot = "ammo"
     elif item.equippable:
@@ -1487,6 +1581,223 @@ async def unequip_item(
 
     # Recompute equipped weapons
     combat_stats["equipped_weapons"] = compute_equipped_weapons(character, db)
+    character.combat_stats = combat_stats
+
+    db.commit()
+    db.refresh(character)
+    return _build_inventory(character_id, db)
+
+
+class ItemStateUpdate(BaseModel):
+    """Update per-character item state (fill level, contents, etc.)."""
+    state: dict
+
+
+@router.patch("/{character_id}/items/{item_id}/state", response_model=CharacterInventoryEntry)
+async def update_item_state(
+    character_id: int,
+    item_id: int,
+    body: ItemStateUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Update per-character item state (fill level, contents, etc.)."""
+    character = db.query(Character).filter(Character.id == character_id).first()
+    if not character:
+        raise HTTPException(status_code=404, detail=f"Character with id {character_id} not found")
+    if not can_edit_character(current_user, character):
+        raise HTTPException(status_code=403, detail="Only the character owner or campaign GM can update item state")
+
+    existing = db.execute(
+        select(
+            character_items.c.quantity,
+            character_items.c.slot,
+            character_items.c.identified,
+            character_items.c.container_item_id,
+            character_items.c.dropped,
+            character_items.c.state,
+        ).where(
+            (character_items.c.character_id == character_id) &
+            (character_items.c.item_id == item_id)
+        )
+    ).first()
+    if not existing:
+        raise HTTPException(status_code=404, detail="Item not in character's inventory")
+
+    # Merge new state with existing
+    merged = dict(existing.state or {})
+    merged.update(body.state)
+
+    db.execute(
+        sa_update(character_items)
+        .where(
+            (character_items.c.character_id == character_id) &
+            (character_items.c.item_id == item_id)
+        )
+        .values(state=merged)
+    )
+    db.commit()
+
+    item = db.query(Item).filter(Item.id == item_id).first()
+    return CharacterInventoryEntry(
+        item=_item_to_public(item),
+        quantity=existing.quantity,
+        slot=existing.slot,
+        identified=existing.identified,
+        container_item_id=existing.container_item_id,
+        dropped=existing.dropped,
+        state=merged,
+    )
+
+
+class MoveItemRequest(BaseModel):
+    """Move an item into or out of a container."""
+    container_item_id: int | None = None  # null = remove from container
+
+
+class DropContainerRequest(BaseModel):
+    """Drop or pick up a container."""
+    dropped: bool
+
+
+@router.post("/{character_id}/items/{item_id}/move", response_model=list[CharacterInventoryEntry])
+async def move_item_to_container(
+    character_id: int,
+    item_id: int,
+    body: MoveItemRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Move an item into or out of a container."""
+    character = db.query(Character).filter(Character.id == character_id).first()
+    if not character:
+        raise HTTPException(status_code=404, detail=f"Character with id {character_id} not found")
+    if not can_edit_character(current_user, character):
+        raise HTTPException(status_code=403, detail="Only the character owner or campaign GM can move items")
+
+    # Verify item is in inventory
+    row = db.execute(
+        select(character_items.c.item_id, character_items.c.slot, character_items.c.quantity)
+        .where(
+            (character_items.c.character_id == character_id)
+            & (character_items.c.item_id == item_id)
+        )
+    ).first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Item not in character's inventory")
+
+    item = db.query(Item).filter(Item.id == item_id).first()
+
+    if body.container_item_id is not None:
+        # Moving INTO a container — validate
+        # Cannot nest containers
+        if item and (item.item_metadata or {}).get("capacity"):
+            raise HTTPException(status_code=400, detail="Cannot place a container inside another container")
+
+        # Must unequip first
+        if row.slot:
+            raise HTTPException(status_code=400, detail="Unequip the item before placing it in a container")
+
+        # Verify container is in inventory and is a container
+        container_row = db.execute(
+            select(character_items.c.item_id)
+            .where(
+                (character_items.c.character_id == character_id)
+                & (character_items.c.item_id == body.container_item_id)
+            )
+        ).first()
+        if not container_row:
+            raise HTTPException(status_code=404, detail="Container not in character's inventory")
+
+        container_item = db.query(Item).filter(Item.id == body.container_item_id).first()
+        capacity = (container_item.item_metadata or {}).get("capacity") if container_item else None
+        if not capacity:
+            raise HTTPException(status_code=400, detail="Target item is not a container")
+
+        # Check capacity — sum current contents weight
+        content_rows = db.execute(
+            select(character_items.c.item_id, character_items.c.quantity)
+            .where(
+                (character_items.c.character_id == character_id)
+                & (character_items.c.container_item_id == body.container_item_id)
+                & (character_items.c.item_id != item_id)  # exclude self if already in this container
+            )
+        ).fetchall()
+        current_load = 0
+        if content_rows:
+            content_items = db.query(Item).filter(
+                Item.id.in_([r.item_id for r in content_rows])
+            ).all()
+            weight_map = {i.id: i.weight or 0 for i in content_items}
+            for r in content_rows:
+                current_load += weight_map.get(r.item_id, 0) * r.quantity
+
+        item_weight = (item.weight or 0) * row.quantity
+        if current_load + item_weight > capacity:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Not enough room — {current_load + item_weight:.0f}/{capacity} coins (need {item_weight:.0f} free)",
+            )
+
+    # Update container assignment
+    db.execute(
+        sa_update(character_items)
+        .where(
+            (character_items.c.character_id == character_id)
+            & (character_items.c.item_id == item_id)
+        )
+        .values(container_item_id=body.container_item_id)
+    )
+    db.commit()
+    return _build_inventory(character_id, db)
+
+
+@router.post("/{character_id}/items/{item_id}/drop", response_model=list[CharacterInventoryEntry])
+async def drop_or_pickup_container(
+    character_id: int,
+    item_id: int,
+    body: DropContainerRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Drop or pick up a container. Dropped containers and their contents don't count toward encumbrance."""
+    character = db.query(Character).filter(Character.id == character_id).first()
+    if not character:
+        raise HTTPException(status_code=404, detail=f"Character with id {character_id} not found")
+    if not can_edit_character(current_user, character):
+        raise HTTPException(status_code=403, detail="Only the character owner or campaign GM can drop items")
+
+    # Verify item is in inventory
+    row = db.execute(
+        select(character_items.c.item_id)
+        .where(
+            (character_items.c.character_id == character_id)
+            & (character_items.c.item_id == item_id)
+        )
+    ).first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Item not in character's inventory")
+
+    # Verify item is a container
+    item = db.query(Item).filter(Item.id == item_id).first()
+    if not item or not (item.item_metadata or {}).get("capacity"):
+        raise HTTPException(status_code=400, detail="Only containers can be dropped")
+
+    db.execute(
+        sa_update(character_items)
+        .where(
+            (character_items.c.character_id == character_id)
+            & (character_items.c.item_id == item_id)
+        )
+        .values(dropped=body.dropped)
+    )
+
+    # Recompute encumbrance and movement
+    db.flush()
+    enc = compute_encumbrance(character, db)
+    combat_stats = dict(character.combat_stats or {})
+    combat_stats["effective_movement"] = enc["effective_movement"]
+    combat_stats["encumbrance"] = enc["encumbrance"]
     character.combat_stats = combat_stats
 
     db.commit()

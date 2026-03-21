@@ -94,6 +94,9 @@ class CharacterInventoryEntry(BaseModel):
     quantity: int
     slot: str | None = None  # null = carried; "armor" | "shield" | "main-hand" | "off-hand"
     identified: bool = False
+    container_item_id: int | None = None  # items.id of the container holding this item
+    dropped: bool = False  # True if this container has been dropped
+    state: dict | None = None  # Per-character item state (fill, contents, etc.)
 
 
 class CharacterInventoryEntryGM(BaseModel):
@@ -102,6 +105,9 @@ class CharacterInventoryEntryGM(BaseModel):
     quantity: int
     slot: str | None = None
     identified: bool = False
+    container_item_id: int | None = None
+    dropped: bool = False
+    state: dict | None = None
 
 
 class StashEntry(BaseModel):

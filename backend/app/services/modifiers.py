@@ -296,6 +296,7 @@ def compute_encumbrance(character, db) -> dict:
 
     Sums item.weight * quantity for ALL inventory items plus coin totals.
     Items with null weight are treated as 0 (weightless until GM assigns).
+    Dropped containers and their contents are excluded from the total.
     """
     from app.models.item import character_items, Item
 
@@ -307,11 +308,18 @@ def compute_encumbrance(character, db) -> dict:
 
     item_weight = 0
     if rows:
+        # Identify dropped container item_ids
+        dropped_ids = {row.item_id for row in rows if row.dropped}
+
         item_ids = {}
         for row in rows:
+            if row.dropped:
+                continue  # Skip dropped containers
+            if row.container_item_id in dropped_ids:
+                continue  # Skip items inside dropped containers
             item_ids.setdefault(row.item_id, 0)
             item_ids[row.item_id] += row.quantity
-        items = db.query(Item).filter(Item.id.in_(item_ids.keys())).all()
+        items = db.query(Item).filter(Item.id.in_(item_ids.keys())).all() if item_ids else []
         for item in items:
             item_weight += (item.weight or 0) * item_ids[item.id]
 
