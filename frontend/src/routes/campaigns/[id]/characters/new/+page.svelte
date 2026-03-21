@@ -6,12 +6,15 @@
   import PageWrapper from '$lib/components/PageWrapper.svelte';
   import Modal from '$lib/components/shared/Modal.svelte';
   import ClassDetail from '$lib/components/classes/ClassDetail.svelte';
+  import DiceOverlay from '$lib/components/shared/DiceOverlay.svelte';
 
   import { token } from '$lib/stores.js';
   import { get } from 'svelte/store';
 
   const campaignId = parseInt($page.params.id);
   const masterId = $page.url.searchParams.get('master_id');
+
+  let rollDice = null;
 
   let classes = [];
   let campaign = null;
@@ -69,6 +72,7 @@
     hp_max: 4,
     hp_current: 4,
     xp: 0,
+    gold: 0,
   };
 
   const alignments = ['Lawful', 'Neutral', 'Chaotic'];
@@ -103,6 +107,65 @@
 
   // Derived: currently selected class object
   $: selectedClass = classes.find(c => c.id == form.character_class_id) || null;
+
+  // --- Roll 3d6 down the line ---
+  let rollingAbilities = false;
+
+  async function rollDownTheLine() {
+    if (!rollDice || rollingAbilities) return;
+    rollingAbilities = true;
+    const keys = ['strength', 'intelligence', 'wisdom', 'dexterity', 'constitution', 'charisma'];
+    const labels = ['STR', 'INT', 'WIS', 'DEX', 'CON', 'CHA'];
+    for (let i = 0; i < keys.length; i++) {
+      const total = await rollDice('3d6', (roll) => {
+        return { display: roll, text: `${labels[i]}: ${roll}` };
+      });
+      if (total != null) {
+        form[keys[i]] = total;
+      }
+      // Brief pause between rolls for drama
+      if (i < keys.length - 1) {
+        await new Promise(r => setTimeout(r, 350));
+      }
+    }
+    rollingAbilities = false;
+  }
+
+  // Hit die from selected class (e.g. "1d8" → 8)
+  $: hitDice = selectedClass?.class_data?.hit_dice ?? null;
+
+  // CON HP modifier table (OSE)
+  const CON_HP = {
+    3: -3, 4: -2, 5: -2, 6: -1, 7: -1, 8: -1,
+    9: 0, 10: 0, 11: 0, 12: 0,
+    13: 1, 14: 1, 15: 1, 16: 2, 17: 2, 18: 3,
+  };
+  $: conMod = CON_HP[Math.max(3, Math.min(18, parseInt(form.constitution) || 10))] ?? 0;
+
+  async function rollHP() {
+    if (!rollDice || !hitDice) return;
+    const total = await rollDice(hitDice, (roll) => {
+      const hp = Math.max(1, roll + conMod);
+      const modStr = conMod > 0 ? ` +${conMod} CON` : conMod < 0 ? ` ${conMod} CON` : '';
+      return { display: hp, text: `HP: ${roll}${modStr} = ${hp}` };
+    });
+    if (total != null) {
+      const hp = Math.max(1, total + conMod);
+      form.hp_max = hp;
+      form.hp_current = hp;
+    }
+  }
+
+  async function rollStartingGold() {
+    if (!rollDice) return;
+    const total = await rollDice('3d6', (roll) => {
+      const gp = roll * 10;
+      return { display: gp, text: `Starting gold: ${roll} × 10 = ${gp} gp` };
+    });
+    if (total != null) {
+      form.gold = total * 10;
+    }
+  }
 
   // Derived: previewed class from index
   $: previewedClass = classes[previewIndex] || null;
@@ -172,6 +235,7 @@
         hp_max: parseInt(form.hp_max),
         hp_current: parseInt(form.hp_current),
         xp: parseInt(form.xp),
+        gold: parseInt(form.gold) || 0,
       };
       if (masterId) {
         payload.master_id = parseInt(masterId);
@@ -197,6 +261,8 @@
 <svelte:head>
   <title>New Character — OSE Sheet</title>
 </svelte:head>
+
+<DiceOverlay bind:roll={rollDice} />
 
 <PageWrapper title={masterId ? 'Hire Retainer' : 'New Character'}>
   {#if loading}
@@ -275,8 +341,16 @@
 
         <!-- Ability Scores -->
         <div class="sm:col-span-2">
-          <p class="section-title">Ability Scores</p>
-          <div class="grid grid-cols-2 sm:grid-cols-3 gap-3">
+          <div class="flex items-center justify-between">
+            <p class="section-title mb-0 border-none pb-0">Ability Scores</p>
+            <button
+              type="button"
+              class="btn text-xs"
+              on:click={rollDownTheLine}
+              disabled={rollingAbilities}
+            >{rollingAbilities ? 'Rolling…' : 'Roll 3d6 Down the Line'}</button>
+          </div>
+          <div class="grid grid-cols-2 sm:grid-cols-3 gap-3 mt-3">
             {#each abilityScores as { key, label }}
               <div>
                 <label class="block text-xs text-ink-faint mb-1" for="score-{key}">{label}</label>
@@ -296,11 +370,35 @@
         <!-- HP -->
         <div>
           <label class="block text-sm text-ink mb-1" for="char-maxhp">Max HP</label>
-          <input id="char-maxhp" class="input w-full" type="number" min="1" bind:value={form.hp_max} />
+          <div class="flex gap-2">
+            <input id="char-maxhp" class="input flex-1" type="number" min="1" bind:value={form.hp_max} />
+            {#if hitDice}
+              <button
+                type="button"
+                class="btn text-xs shrink-0"
+                on:click={rollHP}
+                title="Roll {hitDice}"
+              >Roll {hitDice}</button>
+            {/if}
+          </div>
         </div>
         <div>
           <label class="block text-sm text-ink mb-1" for="char-curhp">Current HP</label>
           <input id="char-curhp" class="input w-full" type="number" bind:value={form.hp_current} />
+        </div>
+
+        <!-- Starting Gold -->
+        <div>
+          <label class="block text-sm text-ink mb-1" for="char-gold">Starting Gold</label>
+          <div class="flex gap-2">
+            <input id="char-gold" class="input flex-1" type="number" min="0" bind:value={form.gold} />
+            <button
+              type="button"
+              class="btn text-xs shrink-0"
+              on:click={rollStartingGold}
+              title="Roll 3d6 × 10"
+            >Roll 3d6×10</button>
+          </div>
         </div>
       </div>
 
