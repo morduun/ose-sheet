@@ -10,6 +10,7 @@ from app.config import settings
 from app.database import get_db
 from app.dependencies import get_current_user
 from app.models import User
+from app.models.allowed_email import AllowedEmail
 from app.schemas.auth import TokenResponse, TokenRequest
 from app.schemas.user import UserPublic, User as UserSchema
 from app.services.auth import (
@@ -90,6 +91,19 @@ async def google_callback(request: Request, db: Session = Depends(get_db)):
             detail=f"Failed to fetch user info from Google: {str(e)}",
         )
 
+    # Check email allowlist (skip check if no entries yet — fresh install)
+    google_email = google_user_info.get("email", "").lower()
+    allowlist_count = db.query(AllowedEmail).count()
+    if allowlist_count > 0:
+        allowed = db.query(AllowedEmail).filter(
+            AllowedEmail.email == google_email
+        ).first()
+        if not allowed:
+            # Redirect to frontend with error instead of raw 403
+            return RedirectResponse(
+                url=f"{settings.frontend_url}/auth/callback?error=not_allowed"
+            )
+
     # Create or update user in our database
     user = get_or_create_user(google_user_info, db)
 
@@ -114,6 +128,18 @@ async def email_login(token_request: TokenRequest, db: Session = Depends(get_db)
     Returns:
         TokenResponse with JWT token and user info
     """
+    # Check email allowlist (skip check if no entries yet — fresh install)
+    allowlist_count = db.query(AllowedEmail).count()
+    if allowlist_count > 0:
+        allowed = db.query(AllowedEmail).filter(
+            AllowedEmail.email == token_request.email.lower()
+        ).first()
+        if not allowed:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="This email is not authorized to access this server. Contact the GM for an invite.",
+            )
+
     user = get_user_by_email(token_request.email, db)
 
     if not user:

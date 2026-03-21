@@ -1,7 +1,8 @@
 import { token } from './stores.js';
 import { get } from 'svelte/store';
 
-const BASE = 'http://localhost:8000/api';
+// const BASE = 'http://localhost:8000/api';
+const BASE = '/api';
 
 async function request(method, path, body) {
   const t = get(token);

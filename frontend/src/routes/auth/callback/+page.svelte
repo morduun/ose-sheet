@@ -7,6 +7,12 @@
   let error = '';
 
   onMount(async () => {
+    const err = $page.url.searchParams.get('error');
+    if (err === 'not_allowed') {
+      error = 'This email is not authorized to access this server. Contact the GM for an invite.';
+      return;
+    }
+
     const t = $page.url.searchParams.get('token');
     if (!t) {
       error = 'No token received from Google. Please try again.';

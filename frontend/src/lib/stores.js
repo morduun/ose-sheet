@@ -48,7 +48,7 @@ export async function fetchUserInfo() {
   const t = get(token);
   if (!t) return;
   try {
-    const res = await fetch('http://localhost:8000/api/auth/me', {
+    const res = await fetch('/api/auth/me', {
       headers: { Authorization: `Bearer ${t}` },
     });
     if (res.ok) {

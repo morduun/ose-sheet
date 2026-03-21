@@ -5,7 +5,7 @@ from app.config import settings
 from app.database import engine, Base
 
 # Import routers
-from app.api import auth, backup, campaigns, characters, character_classes, items, mercenaries, monsters, specialists, spells
+from app.api import allowed_emails, auth, backup, campaigns, characters, character_classes, items, mercenaries, monsters, specialists, spells
 
 # Create FastAPI application
 app = FastAPI(
@@ -73,3 +73,4 @@ app.include_router(specialists.types_router, prefix="/api/specialist-types", tag
 app.include_router(specialists.router, prefix="/api/characters/{character_id}/specialists", tags=["Specialists"])
 app.include_router(monsters.router, prefix="/api/monsters", tags=["Monsters"])
 app.include_router(backup.router, prefix="/api/backups", tags=["Backups"])
+app.include_router(allowed_emails.router, prefix="/api/allowed-emails", tags=["Allowed Emails"])

@@ -8,6 +8,7 @@ from app.models.memorized_spell import MemorizedSpell
 from app.models.monster import Monster
 from app.models.mercenary import Mercenary
 from app.models.specialist import Specialist
+from app.models.allowed_email import AllowedEmail
 
 __all__ = [
     "User",
@@ -24,4 +25,5 @@ __all__ = [
     "Monster",
     "Mercenary",
     "Specialist",
+    "AllowedEmail",
 ]
