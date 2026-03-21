@@ -88,8 +88,13 @@
     .filter(e => e.slot)
     .map(e => ({ slot: e.slot, name: e.item?.name ?? 'Unknown' }));
 
-  // --- Encumbrance ---
+  // --- Encumbrance (exclude dropped containers and their contents) ---
+  $: droppedContainerIds = new Set(
+    inventory.filter(e => e.dropped && (e.item?.item_metadata?.capacity ?? 0) > 0).map(e => e.item.id)
+  );
   $: totalWeight = inventory.reduce((sum, e) => {
+    if (e.dropped) return sum;
+    if (droppedContainerIds.has(e.container_item_id)) return sum;
     const w = e.item?.item_metadata?.weight ?? 0;
     return sum + w * (e.quantity ?? 1);
   }, 0);
