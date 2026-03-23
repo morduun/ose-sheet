@@ -5,7 +5,7 @@ from app.config import settings
 from app.database import engine, Base
 
 # Import routers
-from app.api import allowed_emails, auth, backup, campaigns, characters, character_classes, items, mercenaries, monsters, specialists, spells
+from app.api import allowed_emails, auth, backup, campaigns, characters, character_classes, items, mercenaries, monsters, specialists, spells, vehicles
 
 # Create FastAPI application
 app = FastAPI(
@@ -32,9 +32,7 @@ app.add_middleware(
 
 @app.on_event("startup")
 async def startup_event():
-    """Initialize database tables on startup."""
-    # Create all tables
-    Base.metadata.create_all(bind=engine)
+    """Application startup. Tables are managed by Alembic migrations."""
     print(f"🚀 {settings.app_name} v{settings.app_version} starting up...")
 
 
@@ -74,3 +72,5 @@ app.include_router(specialists.router, prefix="/api/characters/{character_id}/sp
 app.include_router(monsters.router, prefix="/api/monsters", tags=["Monsters"])
 app.include_router(backup.router, prefix="/api/backups", tags=["Backups"])
 app.include_router(allowed_emails.router, prefix="/api/allowed-emails", tags=["Allowed Emails"])
+app.include_router(vehicles.types_router, prefix="/api/vehicle-types", tags=["Vehicles"])
+app.include_router(vehicles.router, prefix="/api/campaigns/{campaign_id}/vehicles", tags=["Vehicles"])
