@@ -8,6 +8,7 @@
   import PageWrapper from '$lib/components/PageWrapper.svelte';
   import Badge from '$lib/components/shared/Badge.svelte';
   import PartyStash from '$lib/components/campaign/PartyStash.svelte';
+  import VehiclePanel from '$lib/components/campaign/VehiclePanel.svelte';
 
   const campaignId = $page.params.id;
 
@@ -108,6 +109,10 @@
         class={activeTab === 'stash' ? 'tab-active' : 'tab'}
         on:click={() => (activeTab = 'stash')}
       >Party Stash</button>
+      <button
+        class={activeTab === 'vehicles' ? 'tab-active' : 'tab'}
+        on:click={() => (activeTab = 'vehicles')}
+      >Vehicles</button>
     </div>
 
     {#if activeTab === 'adventurers'}
@@ -232,6 +237,8 @@
       {/if}
     {:else if activeTab === 'stash'}
       <PartyStash campaignId={campaignId} isGM={isGM} characters={myCharacters} />
+    {:else if activeTab === 'vehicles'}
+      <VehiclePanel campaignId={campaignId} isGM={isGM} characters={myCharacters} />
     {/if}
   </PageWrapper>
 {/if}

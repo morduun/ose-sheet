@@ -39,6 +39,7 @@ class Campaign(Base):
     items = relationship("Item", back_populates="campaign", cascade="all, delete-orphan")
     character_classes = relationship("CharacterClass", back_populates="campaign", cascade="all, delete-orphan")
     monsters = relationship("Monster", back_populates="campaign", cascade="all, delete-orphan")
+    vehicles = relationship("Vehicle", back_populates="campaign", cascade="all, delete-orphan")
     stash_items = relationship(
         "Item",
         secondary=campaign_stash,

@@ -29,6 +29,9 @@
       <a href="/monsters" class="text-sm text-parchment-200 hover:text-parchment-50 transition-colors">
         Monsters
       </a>
+      <a href="/vehicles" class="text-sm text-parchment-200 hover:text-parchment-50 transition-colors">
+        Vehicles
+      </a>
       <a href="/admin" class="text-sm text-parchment-200 hover:text-parchment-50 transition-colors">
         Admin
       </a>

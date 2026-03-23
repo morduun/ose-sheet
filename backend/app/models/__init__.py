@@ -9,6 +9,9 @@ from app.models.monster import Monster
 from app.models.mercenary import Mercenary
 from app.models.specialist import Specialist
 from app.models.allowed_email import AllowedEmail
+from app.models.mercenary_type import MercenaryType
+from app.models.specialist_type import SpecialistType
+from app.models.vehicle import Vehicle, VehicleType, vehicle_cargo
 
 __all__ = [
     "User",
@@ -26,4 +29,9 @@ __all__ = [
     "Mercenary",
     "Specialist",
     "AllowedEmail",
+    "MercenaryType",
+    "SpecialistType",
+    "Vehicle",
+    "VehicleType",
+    "vehicle_cargo",
 ]
