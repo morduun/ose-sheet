@@ -25,7 +25,12 @@ OSE Sheets is a web application for managing characters, campaigns, and party in
 ### Inventory & Equipment
 - Equip/unequip weapons and armor with auto-computed AC (including rear AC, shieldless AC)
 - Weapon table with THAC0, damage, range, and special attack qualities
+- Two-handed weapon validation — blocks off-hand and shield equipping
 - Ammo tracking with auto-decrement on ranged attack rolls
+- **Containers** — backpacks, sacks with capacity tracking and fullness meters
+- **Drop/pick up containers** in combat for instant movement adjustment (encumbrance-based)
+- **Fillable items** — waterskins, flasks with fill state (full/half/empty) and contents tracking
+- Encumbrance system with effective movement rate calculation
 - Item abilities — rings, wondrous items, and gear can grant attribute modifiers, skill rolls, auras, round effects, and special attacks
 - Revealable item secrets — GMs attach hidden information and reveal it piece by piece as players identify things in-game
 - Currency tracking (cp, sp, ep, gp, pp) with save to character
@@ -43,20 +48,41 @@ OSE Sheets is a web application for managing characters, campaigns, and party in
 - Morale checks via 2d6 dice roll
 - Payday button deducts monthly wages from character wealth
 
+### Vehicles
+- **18 OSE vehicle types** — carts, wagons, longships, galleys, sailing ships, and more
+- Hull points with damage tracking — movement degrades proportionally with hull damage
+- Cargo holds with weight tracking and take/return to character inventories
+- Custom vehicle type creation for homebrew
+
 ### Campaigns & Permissions
 - GMs create campaigns, players join via invite code
 - Permission system — GMs see everything; players see their own sheets and what the GM reveals
-- Party stash — shared loot pool that characters can take from or return to
+- Party stash — shared loot pool with container-aware transfers (stash a backpack, contents come along)
+- Email allowlist — admin-controlled access gate
+- Cloudflare Access integration with email OTP
+
+### Treasure System
+- **22 OSE treasure types** (A-V) with full roll tables — hoards, individual, and group
+- One-click treasure rolling with percentage checks, dice, and multipliers
+- Gem values (d20 table), jewelry values (3d6 x 100 gp)
+- Magic item cascading through 10 sub-tables — names rolled automatically
+- Compound treasure types ("C + 1000gp")
+- **Referee panel integration** — "Roll Treasure" button rolls all encounter monsters at once
+- Custom treasure type creation for homebrew
 
 ### Referee Tools
 - **Encounter tracker** — initiative tracking, round management, HP adjustment, condition tracking with turn counters
 - **Combat table** — unified view of PCs, retainers, and monsters with clickable THAC0/damage/morale rolls
+- **Treasure roller** — one-click encounter treasure rolling for all monsters, individual per monster + lair per group
 - **Monster bestiary** — full CRUD for campaign-specific and default monsters with stat blocks
 - **Dungeon time tracker** — turn-by-turn tracking with torch/lantern life, ration consumption, custom timers, and event history
 
-### Admin
+### Admin & Content Management
 - Database backup and restore (server-side and file upload)
-- Default content seeding — classes, items, spells from OSE rules
+- Email allowlist for login control
+- DB-backed reference catalogs with admin CRUD: character classes, items, spells, monsters, vehicle types, mercenary types, specialist types, treasure types
+- All reference data supports `is_default` + campaign-specific custom entries for homebrew
+- Print-ready character sheets with container grouping and fill states
 
 ## Tech Stack
 
@@ -65,7 +91,7 @@ OSE Sheets is a web application for managing characters, campaigns, and party in
 | Frontend | SvelteKit 2, Svelte 5, Tailwind CSS 3 |
 | Backend | FastAPI, SQLAlchemy 2, Alembic |
 | Database | SQLite (trivially swappable to PostgreSQL) |
-| Auth | Google OAuth 2.0, JWT tokens |
+| Auth | Google OAuth 2.0, JWT tokens, Cloudflare Access |
 | Dice | [dice-box](https://fantasticdice.games/) 3D physics engine |
 
 ## Quick Start
@@ -129,7 +155,7 @@ curl -X POST http://localhost:8000/api/auth/token \
 | `make dev` | Start both backend and frontend |
 | `make migrate` | Apply database migrations |
 | `make migrate-new` | Create a new migration |
-| `make seed-all` | Seed test user, admin, classes, items, and spells |
+| `make seed-all` | Seed test user, admin, classes, items, spells, vehicles, mercenaries, specialists, and treasure types |
 | `make build` | Production build of the frontend |
 | `make backup` | Create a database backup |
 | `make restore FILE=<path>` | Restore from a backup file |
