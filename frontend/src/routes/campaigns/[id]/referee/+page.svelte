@@ -9,6 +9,7 @@
   import PageWrapper from '$lib/components/PageWrapper.svelte';
   import Markdown from '$lib/components/shared/Markdown.svelte';
   import DiceOverlay from '$lib/components/shared/DiceOverlay.svelte';
+  import TreasureRollResult from '$lib/components/treasure/TreasureRollResult.svelte';
 
   const campaignId = $page.params.id;
 
@@ -583,6 +584,58 @@
       // silently fail — poll will correct
     }
   }
+
+  // --- Encounter Treasure Rolling ---
+  let treasureResults = [];
+  let rollingTreasure = false;
+  let showTreasure = false;
+
+  async function rollEncounterTreasure() {
+    if (monsterInstances.length === 0) return;
+    rollingTreasure = true;
+    treasureResults = [];
+    showTreasure = true;
+
+    try {
+      const results = [];
+      // Group monsters by type to identify treasure types
+      const monsterGroups = {};
+      for (const inst of monsterInstances) {
+        if (!inst.monster) continue;
+        const meta = inst.monster.monster_metadata || {};
+        const ttypes = meta.treasure_type;
+        if (!ttypes || !Array.isArray(ttypes) || ttypes.length === 0) continue;
+        const key = inst.monsterId;
+        if (!monsterGroups[key]) {
+          monsterGroups[key] = { name: inst.monster.name, types: ttypes, count: 0 };
+        }
+        monsterGroups[key].count++;
+      }
+
+      for (const group of Object.values(monsterGroups)) {
+        for (const rawType of group.types) {
+          const isLair = rawType.startsWith('(') && rawType.endsWith(')');
+          const typeKey = isLair ? rawType.slice(1, -1) : rawType;
+
+          if (isLair) {
+            // Lair treasure: roll once
+            const rolls = await api.post('/treasure/roll', { treasure_type: typeKey, count: 1 });
+            results.push({ label: `${group.name} — Lair (${typeKey})`, rolls });
+          } else {
+            // Individual treasure: roll per monster
+            const rolls = await api.post('/treasure/roll', { treasure_type: typeKey, count: group.count });
+            results.push({ label: `${group.name} x${group.count} — Individual (${typeKey})`, rolls });
+          }
+        }
+      }
+
+      treasureResults = results;
+    } catch (e) {
+      treasureResults = [{ label: 'Error', rolls: [], error: e.message }];
+    } finally {
+      rollingTreasure = false;
+    }
+  }
 </script>
 
 <svelte:head>
@@ -606,6 +659,13 @@
 
       <div class="flex items-center gap-3">
         <button class="btn-ghost text-xs" on:click={openAddMonster}>+ Add Monster</button>
+        {#if monsterInstances.length > 0}
+          <button
+            class="btn-ghost text-xs"
+            on:click={rollEncounterTreasure}
+            disabled={rollingTreasure}
+          >{rollingTreasure ? 'Rolling...' : 'Roll Treasure'}</button>
+        {/if}
         {#if encounterActive}
           <div class="flex items-center gap-2 panel py-1.5 px-3">
             <span class="text-xs text-ink-faint uppercase tracking-wide">Round</span>
@@ -919,6 +979,53 @@
       </div>
     {/if}
   </PageWrapper>
+{/if}
+
+<!-- Encounter Treasure Results -->
+{#if showTreasure && treasureResults.length > 0}
+  <!-- svelte-ignore a11y-click-events-have-key-events -->
+  <!-- svelte-ignore a11y-no-static-element-interactions -->
+  <div class="fixed inset-0 bg-black/40 z-40 flex items-center justify-center print:hidden" on:click|self={() => showTreasure = false}>
+    <div class="panel w-full max-w-2xl max-h-[80vh] flex flex-col referee-modal">
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="section-title mb-0 border-none pb-0">Encounter Treasure</h2>
+        <button class="btn-ghost text-xs" on:click={() => showTreasure = false}>&times; Close</button>
+      </div>
+      <div class="overflow-y-auto flex-1 -mx-4 px-4 space-y-4">
+        {#each treasureResults as group}
+          <div>
+            <h3 class="text-sm font-medium text-ink mb-2">{group.label}</h3>
+            {#if group.error}
+              <p class="text-red-700 text-sm">{group.error}</p>
+            {:else if group.rolls.length === 1}
+              <TreasureRollResult result={group.rolls[0]} />
+            {:else}
+              {#each group.rolls as roll, i}
+                <TreasureRollResult result={roll} index={i} />
+              {/each}
+              <!-- Aggregate for multiple individual rolls -->
+              {#if group.rolls.length > 1}
+                {@const totalCoins = {}}
+                {@const _ = group.rolls.forEach(r => Object.entries(r.coins).forEach(([k, v]) => totalCoins[k] = (totalCoins[k] || 0) + v))}
+                {@const grandTotal = group.rolls.reduce((s, r) => s + r.total_gp_value, 0)}
+                <div class="panel bg-parchment-100/50 mt-2">
+                  <div class="text-xs text-ink-faint uppercase tracking-wide mb-1">Subtotal ({group.rolls.length} rolls)</div>
+                  <div class="flex flex-wrap gap-3">
+                    {#each ['pp', 'gp', 'ep', 'sp', 'cp'] as coin}
+                      {#if (totalCoins[coin] || 0) > 0}
+                        <span class="text-sm text-ink">{totalCoins[coin].toLocaleString()} {coin.toUpperCase()}</span>
+                      {/if}
+                    {/each}
+                  </div>
+                  <div class="text-right text-sm text-ink-faint mt-1">{grandTotal.toLocaleString()} gp total</div>
+                </div>
+              {/if}
+            {/if}
+          </div>
+        {/each}
+      </div>
+    </div>
+  </div>
 {/if}
 
 <!-- Add Monster Modal -->

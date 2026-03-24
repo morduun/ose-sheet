@@ -38,6 +38,9 @@
       <a href="/specialists" class="text-sm text-parchment-200 hover:text-parchment-50 transition-colors">
         Specialists
       </a>
+      <a href="/treasure" class="text-sm text-parchment-200 hover:text-parchment-50 transition-colors">
+        Treasure
+      </a>
       <a href="/admin" class="text-sm text-parchment-200 hover:text-parchment-50 transition-colors">
         Admin
       </a>
