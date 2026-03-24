@@ -11,6 +11,7 @@ from app.models.specialist import Specialist
 from app.models.allowed_email import AllowedEmail
 from app.models.mercenary_type import MercenaryType
 from app.models.specialist_type import SpecialistType
+from app.models.treasure_type import TreasureType
 from app.models.vehicle import Vehicle, VehicleType, vehicle_cargo
 
 __all__ = [
@@ -31,6 +32,7 @@ __all__ = [
     "AllowedEmail",
     "MercenaryType",
     "SpecialistType",
+    "TreasureType",
     "Vehicle",
     "VehicleType",
     "vehicle_cargo",
