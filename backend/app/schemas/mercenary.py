@@ -1,16 +1,31 @@
-"""Pydantic schemas for mercenary units."""
+"""Pydantic schemas for mercenary units and types."""
 
 from pydantic import BaseModel, Field
 
 
 class MercenaryTypeInfo(BaseModel):
-    """Reference data for a mercenary type (for dropdown/display)."""
+    """Reference data for a mercenary type."""
+    id: int
     key: str
     name: str
     ac: int
     morale: int
-    desc: str
-    costs: dict[str, float | None]
+    description: str | None = None
+    race_costs: dict[str, float]  # {"human": 5, "elf": 10} — only available races
+    is_default: bool = False
+    campaign_id: int | None = None
+
+    model_config = {"from_attributes": True}
+
+
+class MercenaryTypeCreate(BaseModel):
+    """Request to create a custom mercenary type."""
+    key: str
+    name: str
+    ac: int
+    morale: int
+    description: str | None = None
+    race_costs: dict[str, float]
 
 
 class MercenaryUnit(BaseModel):

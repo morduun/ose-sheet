@@ -32,7 +32,8 @@ app.add_middleware(
 
 @app.on_event("startup")
 async def startup_event():
-    """Application startup. Tables are managed by Alembic migrations."""
+    """Application startup. Alembic manages schema; create_all is a safety net for missing tables."""
+    Base.metadata.create_all(bind=engine)
     print(f"🚀 {settings.app_name} v{settings.app_version} starting up...")
 
 

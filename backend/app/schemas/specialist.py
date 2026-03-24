@@ -1,14 +1,27 @@
-"""Pydantic schemas for specialist hirelings."""
+"""Pydantic schemas for specialist hirelings and types."""
 
 from pydantic import BaseModel, Field
 
 
 class SpecialistTypeInfo(BaseModel):
-    """Reference data for a specialist type (for dropdown/display)."""
+    """Reference data for a specialist type."""
+    id: int
     key: str
     name: str
     wage: int
-    desc: str
+    description: str | None = None
+    is_default: bool = False
+    campaign_id: int | None = None
+
+    model_config = {"from_attributes": True}
+
+
+class SpecialistTypeCreate(BaseModel):
+    """Request to create a custom specialist type."""
+    key: str
+    name: str
+    wage: int
+    description: str | None = None
 
 
 class SpecialistEntry(BaseModel):
