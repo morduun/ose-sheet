@@ -63,6 +63,9 @@ class Item(Base):
     # Default items are available to all campaigns
     is_default = Column(Boolean, default=False, index=True)
 
+    # GM-only items are hidden from player "Add Item" — only assignable by GM
+    gm_only = Column(Boolean, default=False, server_default="0")
+
     # Timestamps
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())

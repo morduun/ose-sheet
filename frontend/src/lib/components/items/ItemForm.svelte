@@ -17,6 +17,7 @@
   let unidentifiedName = initialData?.unidentified_name || '';
   let itemType = initialData?.item_type || 'weapon';
   let equippable = initialData?.equippable || false;
+  let gmOnly = initialData?.gm_only || false;
   let fillable = initialData?.item_metadata?.fillable || false;
   let capacity = initialData?.item_metadata?.capacity != null ? String(initialData.item_metadata.capacity) : '';
   let weight = initialData?.weight != null ? String(initialData.weight) : '';
@@ -210,6 +211,7 @@
         unidentified_name: unidentifiedName.trim() || null,
         item_type: itemType,
         equippable,
+        gm_only: gmOnly,
         weight: weight !== '' && weight != null ? parseFloat(weight) : null,
         cost_gp: costGp !== '' && costGp != null ? parseFloat(costGp) : null,
         description_player: descriptionPlayer.trim() || null,
@@ -257,6 +259,10 @@
         <label class="flex items-center gap-2 text-sm text-ink cursor-pointer" title="Can hold liquids (waterskin, flask)">
           <input type="checkbox" bind:checked={fillable} class="accent-ink" />
           Fillable
+        </label>
+        <label class="flex items-center gap-2 text-sm text-ink cursor-pointer" title="Hidden from player 'Add Item' — only assignable by GM">
+          <input type="checkbox" bind:checked={gmOnly} class="accent-ink" />
+          GM Only
         </label>
       </div>
     </div>

@@ -170,8 +170,8 @@ def can_view_item_full(user: User, item: Item) -> bool:
         True if user can view full details, False otherwise
     """
     if item.is_default:
-        # Anyone can view default items (player-visible parts)
-        return False
+        # Admins can see full details of default items
+        return is_admin(user)
 
     if item.campaign_id is None:
         return False

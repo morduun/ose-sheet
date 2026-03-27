@@ -131,6 +131,17 @@ async def list_items(
     if is_default is not None:
         query = query.filter(Item.is_default == is_default)
 
+    # Hide GM-only items from non-GM users
+    is_gm = False
+    if campaign_id:
+        campaign = db.query(Campaign).filter(Campaign.id == campaign_id).first()
+        if campaign and campaign.gm_id == current_user.id:
+            is_gm = True
+    if current_user.is_admin:
+        is_gm = True
+    if not is_gm:
+        query = query.filter((Item.gm_only == False) | (Item.gm_only == None))
+
     items = query.order_by(Item.name).offset(skip).limit(limit).all()
     return [_item_to_public(i) for i in items]
 

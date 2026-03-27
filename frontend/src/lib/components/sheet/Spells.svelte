@@ -10,14 +10,18 @@
   let loading = true;
   let error = '';
 
-  // Arcane classes have a spellbook; divine can memorize any class spell
-  const ARCANE = new Set(['Magic-User', 'Illusionist']);
-  const DIVINE = new Set(['Cleric', 'Druid']);
-
+  // Determine casting ability from class data, not hardcoded names
   $: className = character.character_class?.name ?? '';
-  $: isArcane = ARCANE.has(className);
-  $: isDivine = DIVINE.has(className);
-  $: isCaster = isArcane || isDivine;
+  $: spellLists = character.character_class?.class_data?.spell_lists ?? [];
+  $: isCaster = spellLists.length > 0;
+
+  // Arcane casters have spellbooks; divine get full spell access
+  const ARCANE_LISTS = new Set(['magic-user', 'illusionist']);
+  const DIVINE_LISTS = new Set(['cleric', 'druid']);
+  $: isArcane = spellLists.some(sl => ARCANE_LISTS.has(sl.list));
+  $: isDivine = spellLists.some(sl => DIVINE_LISTS.has(sl.list));
+  // The actual spell list to query (e.g. "magic-user" for Elves, "cleric" for Druids)
+  $: spellClass = spellLists.length > 0 ? spellLists[0].list : className.toLowerCase();
 
   // Spell picker modal
   let showMemorizeModal = false;
@@ -110,7 +114,7 @@
       } else {
         // Divine: any default spell of that level
         availableForMemorize = await api.get(
-          `/spells/?spell_class=${encodeURIComponent(className.toLowerCase())}&level=${memorizeLevel}`
+          `/spells/?spell_class=${encodeURIComponent(spellClass)}&level=${memorizeLevel}`
         );
       }
     } catch {
@@ -140,7 +144,7 @@
     showAddSpellModal = true;
     spellSearch = '';
     try {
-      searchSpells = await api.get(`/spells/?spell_class=${encodeURIComponent(className.toLowerCase())}`);
+      searchSpells = await api.get(`/spells/?spell_class=${encodeURIComponent(spellClass)}`);
     } catch {
       searchSpells = [];
     }

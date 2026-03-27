@@ -45,15 +45,24 @@ from app.services.modifiers import (
 )
 
 # Spell caster mappings
-CLASS_SPELL_MAP = {
-    "Magic-User": "magic-user",
-    "Illusionist": "illusionist",
-    "Cleric": "cleric",
-    "Druid": "druid",
-}
-ARCANE_CLASSES = {"Magic-User", "Illusionist"}
-DIVINE_CLASSES = {"Cleric", "Druid"}
+ARCANE_SPELL_LISTS = {"magic-user", "illusionist"}
+DIVINE_SPELL_LISTS = {"cleric", "druid"}
 ORDINALS = ["1st", "2nd", "3rd", "4th", "5th", "6th"]
+
+
+def _get_casting_info(character):
+    """
+    Derive spell class and casting type from class_data.spell_lists.
+    Returns (spell_list_name, is_arcane, is_divine) or (None, False, False) for non-casters.
+    """
+    class_data = character.character_class.class_data if character.character_class else {}
+    spell_lists = class_data.get("spell_lists", [])
+    if not spell_lists:
+        return None, False, False
+    spell_list = spell_lists[0]["list"]
+    is_arcane = spell_list in ARCANE_SPELL_LISTS
+    is_divine = spell_list in DIVINE_SPELL_LISTS
+    return spell_list, is_arcane, is_divine
 
 
 def level_to_ordinal(level: int) -> str:
@@ -974,8 +983,9 @@ async def memorize_spell(
             detail="Only the character owner or campaign GM can modify memorized spells",
         )
 
-    class_name = character.character_class.name
-    if class_name not in CLASS_SPELL_MAP:
+    class_name = character.character_class.name if character.character_class else "Unknown"
+    spell_list, is_arcane, is_divine = _get_casting_info(character)
+    if not spell_list:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"{class_name} cannot cast spells",
@@ -988,23 +998,22 @@ async def memorize_spell(
             detail=f"Spell with id {request.spell_id} not found",
         )
 
-    # Spell must match the character's caster type
-    expected_spell_class = CLASS_SPELL_MAP[class_name]
-    if spell.spell_class != expected_spell_class:
+    # Spell must match the character's spell list
+    if spell.spell_class != spell_list:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"{class_name} can only memorize {expected_spell_class} spells",
+            detail=f"{class_name} can only memorize {spell_list} spells",
         )
 
     # Arcane: spell must be in spellbook
-    if class_name in ARCANE_CLASSES:
+    if is_arcane:
         if spell not in character.spells:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Arcane casters can only memorize spells from their spellbook",
             )
     # Divine: must be a default spell
-    elif class_name in DIVINE_CLASSES:
+    elif is_divine:
         if not spell.is_default:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,

@@ -12,8 +12,9 @@
   let loading = true;
   let error = '';
 
-  const ARCANE = new Set(['Magic-User', 'Illusionist']);
-  const DIVINE = new Set(['Cleric', 'Druid']);
+  // Caster detection from class data, not hardcoded names
+  const ARCANE_LISTS = new Set(['magic-user', 'illusionist']);
+  const DIVINE_LISTS = new Set(['cleric', 'druid']);
 
   const abilities = [
     { key: 'strength', label: 'STR' },
@@ -43,7 +44,8 @@
   ];
 
   $: className = character?.character_class?.name ?? character?.combat_stats?.monster_name ?? '';
-  $: isCaster = ARCANE.has(className) || DIVINE.has(className);
+  $: spellLists = character?.character_class?.class_data?.spell_lists ?? [];
+  $: isCaster = spellLists.length > 0;
   $: isPC = character?.character_type === 'pc';
 
   // --- Class Skills ---
@@ -168,7 +170,7 @@
     try {
       character = await api.get(`/characters/${characterId}`);
       inventory = await api.get(`/characters/${characterId}/items`);
-      if (isCaster || ARCANE.has(character.character_class?.name ?? '') || DIVINE.has(character.character_class?.name ?? '')) {
+      if (isCaster || (character.character_class?.class_data?.spell_lists?.length ?? 0) > 0) {
         try {
           spellData = await api.get(`/characters/${characterId}/spells`);
         } catch {

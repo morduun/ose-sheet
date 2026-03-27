@@ -94,6 +94,7 @@
         <div class="ml-auto flex gap-2">
           <a href="/campaigns/{campaignId}/referee" class="btn text-xs">Referee Panel</a>
           <a href="/campaigns/{campaignId}/referee/dungeon" class="btn text-xs">Dungeon Tracker</a>
+          <a href="/campaigns/{campaignId}/referee/overland" class="btn text-xs">Overland Travel</a>
           <button class="btn-danger text-xs" on:click={deleteCampaign}>Delete Campaign</button>
         </div>
       {/if}

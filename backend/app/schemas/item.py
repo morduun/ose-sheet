@@ -33,6 +33,7 @@ class ItemCreate(ItemBase):
 
     campaign_id: int | None = None  # None for default items
     is_default: bool = False
+    gm_only: bool = False
 
 
 class ItemUpdate(BaseModel):
@@ -44,6 +45,7 @@ class ItemUpdate(BaseModel):
     weight: float | None = None
     cost_gp: float | None = None
     equippable: bool | None = None
+    gm_only: bool | None = None
     description_player: str | None = None
     description_gm: str | None = None
     secrets: list[SecretEntry] | None = None
@@ -56,6 +58,7 @@ class Item(ItemBase):
     id: int
     campaign_id: int | None = None
     is_default: bool
+    gm_only: bool = False
     created_at: datetime
     updated_at: datetime | None = None
 
@@ -75,7 +78,8 @@ class ItemPublic(BaseModel):
     description_player: str | None = None
     revealed_secrets: list[str] | None = None
     item_metadata: dict | None = None
-    is_default: bool = False  # Show if item is a default item
+    is_default: bool = False
+    gm_only: bool = False
 
     model_config = {"from_attributes": True}
 

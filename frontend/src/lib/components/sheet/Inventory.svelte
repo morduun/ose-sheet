@@ -373,6 +373,24 @@
     }
   }
 
+  function getAppraisedValue(entry) {
+    return entry.state?.appraised_value ?? null;
+  }
+
+  async function saveAppraisedValue(entry, value) {
+    const numVal = value === '' ? null : parseFloat(value);
+    try {
+      const updated = await api.patch(
+        `/characters/${character.id}/items/${entry.item.id}/state`,
+        { state: { appraised_value: numVal } }
+      );
+      entry.state = updated.state;
+      items = items;
+    } catch (e) {
+      alert(e.message);
+    }
+  }
+
   async function saveContents(entry, value) {
     try {
       const updated = await api.patch(
@@ -607,6 +625,9 @@
         {#if entry.item.weight}
           <span class="ml-1">{entry.item.weight} cn</span>
         {/if}
+        {#if getAppraisedValue(entry) != null}
+          <span class="ml-1 text-amber-700">{getAppraisedValue(entry).toLocaleString()} gp</span>
+        {/if}
         {#if normalizeQualities(entry.item.item_metadata?.qualities).length}
           <span class="ml-1">
             {#each normalizeQualities(entry.item.item_metadata?.qualities) as q}
@@ -623,6 +644,21 @@
           {#if entry.item.item_metadata.onset}<span>Onset: {entry.item.item_metadata.onset}</span>{/if}
           {#if entry.item.item_metadata.effect_failed}<span class="ml-2">Fail: {entry.item.item_metadata.effect_failed}</span>{/if}
           {#if entry.item.item_metadata.save != null}<span class="ml-2">Save: {entry.item.item_metadata.save}+</span>{/if}
+        </div>
+      {/if}
+      {#if entry.item.item_type === 'treasure' && isGM}
+        <div class="flex items-center gap-1 mt-0.5">
+          <span class="text-xs text-ink-faint">Value:</span>
+          <input
+            class="input text-xs py-0 px-1 w-20"
+            type="number"
+            step="any"
+            placeholder="gp"
+            value={getAppraisedValue(entry) ?? ''}
+            on:blur={(e) => saveAppraisedValue(entry, e.target.value)}
+            on:keydown={(e) => e.key === 'Enter' && e.target.blur()}
+          />
+          <span class="text-xs text-ink-faint">gp</span>
         </div>
       {/if}
       {#if isGM && entry.item.secrets?.length}
