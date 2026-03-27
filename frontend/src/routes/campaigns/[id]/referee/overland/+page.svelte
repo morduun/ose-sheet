@@ -25,10 +25,13 @@
   let onRoad = false;
   let waterborne = false;
   let forcedMarch = false;
-  let needsRest = false;
+  let needsRest = false;  // kept for backward compat with saved state
   let daysSinceRest = 0;
+  let forcedMarchDays = 0;  // consecutive forced march days without rest
   let travelLog = [];
   let dayNotes = '';
+  let dayEnded = false;
+  let characterRations = {};  // {charId: {name, quantity}}
 
   // Waterborne state
   let windResult = null;
@@ -120,7 +123,7 @@
     if (!browser) return;
     localStorage.setItem(STORAGE_KEY, JSON.stringify({
       currentDay, terrain, onRoad, waterborne, forcedMarch, needsRest,
-      daysSinceRest, travelLog, selectedVehicleId,
+      daysSinceRest, forcedMarchDays, travelLog, selectedVehicleId,
     }));
   }
 
@@ -139,6 +142,7 @@
       daysSinceRest = s.daysSinceRest || 0;
       travelLog = s.travelLog || [];
       selectedVehicleId = s.selectedVehicleId || null;
+      forcedMarchDays = s.forcedMarchDays || 0;
     } catch { /* defaults */ }
   }
 
@@ -153,6 +157,8 @@
       try {
         vehicles = await api.get(`/campaigns/${campaignId}/vehicles`);
       } catch { vehicles = []; }
+      // Fetch rations for each active PC
+      await loadRations();
     } catch (e) {
       error = e.message;
     } finally {
@@ -160,12 +166,39 @@
     }
   });
 
+  // --- Rations ---
+  function isFood(entry) {
+    if (entry.item?.item_type !== 'consumable') return false;
+    const qualities = entry.item?.item_metadata?.qualities ?? [];
+    const normalized = Array.isArray(qualities) ? qualities : [qualities];
+    return normalized.some(q => typeof q === 'string' && q.toLowerCase() === 'food');
+  }
+
+  async function loadRations() {
+    const pcs = characters.filter(c => c.is_alive && c.character_type === 'pc');
+    const result = {};
+    for (const pc of pcs) {
+      try {
+        const inv = await api.get(`/characters/${pc.id}/items`);
+        const foodItems = inv.filter(isFood);
+        const totalDays = foodItems.reduce((sum, e) => sum + e.quantity, 0);
+        result[pc.id] = { name: pc.name, quantity: totalDays, items: foodItems.map(e => e.item.name) };
+      } catch {
+        result[pc.id] = { name: pc.name, quantity: 0, items: [] };
+      }
+    }
+    characterRations = result;
+  }
+
+  $: totalRations = Object.values(characterRations).reduce((s, r) => s + r.quantity, 0);
+
   // --- Actions ---
   function rollD6() { return Math.floor(Math.random() * 6) + 1; }
 
   function startDay() {
     currentDay++;
     dayNotes = '';
+    dayEnded = false;
     windResult = null;
     if (needsRest) {
       addLogEvent('Forced march fatigue — party needs rest today.');
@@ -279,8 +312,13 @@
     }
   }
 
+  // Fatigue penalty: -1 per day without rest past day 6, PLUS -1 per consecutive forced march day
+  $: restPenalty = daysSinceRest >= 6 ? -(daysSinceRest - 5) : 0;
+  $: marchPenalty = forcedMarchDays > 0 ? -forcedMarchDays : 0;
+  $: fatiguePenalty = restPenalty + marchPenalty;
+
   function endDay() {
-    // Update log entry with final data
+    // Update log entry with final data (always — allows notes to be edited on pause)
     const entry = travelLog.find(l => l.day === currentDay);
     if (entry) {
       entry.miles = waterborne ? effectiveWaterMiles : effectiveMiles;
@@ -289,10 +327,31 @@
       entry.waterborne = waterborne;
     }
 
-    daysSinceRest++;
-    if (forcedMarch) {
-      needsRest = true;
-      forcedMarch = false;
+    // One-time end-of-day effects (only fire once per day)
+    if (!dayEnded) {
+      dayEnded = true;
+
+      // Log ration status
+      const lowRation = Object.values(characterRations).filter(r => r.quantity <= 1);
+      if (lowRation.length > 0) {
+        addLogEvent(`Low rations: ${lowRation.map(r => `${r.name} (${r.quantity})`).join(', ')}`);
+      }
+
+      daysSinceRest++;
+      if (forcedMarch) {
+        forcedMarchDays++;
+        forcedMarch = false;
+        addLogEvent(`Forced march day ${forcedMarchDays} — party suffers ${-forcedMarchDays} to hit/damage until rest.`);
+      }
+
+      // Log combined fatigue status
+      const totalPenalty = (daysSinceRest >= 6 ? -(daysSinceRest - 5) : 0) + (forcedMarchDays > 0 ? -forcedMarchDays : 0);
+      if (totalPenalty < 0) {
+        const parts = [];
+        if (daysSinceRest >= 6) parts.push(`${daysSinceRest} days without rest`);
+        if (forcedMarchDays > 0) parts.push(`${forcedMarchDays} forced march days`);
+        addLogEvent(`Fatigue: ${totalPenalty} to hit and damage (${parts.join(', ')}).`);
+      }
     }
 
     travelLog = travelLog;
@@ -300,10 +359,22 @@
   }
 
   function restDay() {
-    addLogEvent('Rest day — no travel. Party recovers from fatigue.');
+    if (currentDay === 0) return;
+    addLogEvent('Rest day — no travel. Party recovers from all fatigue.');
     daysSinceRest = 0;
     needsRest = false;
     forcedMarch = false;
+    forcedMarchDays = 0;
+
+    // End day and save
+    const entry = travelLog.find(l => l.day === currentDay);
+    if (entry) {
+      entry.miles = 0;
+      entry.notes = dayNotes;
+      entry.terrain = currentTerrain.label + ' (rest)';
+    }
+
+    travelLog = travelLog;
     saveState();
   }
 
@@ -376,7 +447,7 @@
             <div class="flex flex-col gap-2 justify-end">
               <label class="flex items-center gap-2 text-sm text-ink cursor-pointer">
                 <input type="checkbox" bind:checked={forcedMarch} on:change={saveState} class="accent-ink" />
-                Forced March
+                Forced March {#if forcedMarchDays > 0}<span class="text-red-700 text-xs">({-marchPenalty} penalty)</span>{/if}
               </label>
             </div>
           </div>
@@ -423,7 +494,13 @@
             <span>Lost: {effectiveLostChance}-in-6{hasDruid && terrain === 'forest' ? ' (Druid)' : ''}</span>
             <span>Encounter: {waterborne ? 2 : currentTerrain.encounterChance}-in-6</span>
             <span>Forage: {hasForagingBonus ? 2 : 1}-in-6{hasForagingBonus ? ' (Barbarian/Ranger)' : ''}</span>
-            <span>Days since rest: {daysSinceRest}{daysSinceRest >= 6 ? ' (-1 to hit/dmg!)' : ''}</span>
+            <span>Days since rest: {daysSinceRest}</span>
+            {#if fatiguePenalty < 0}
+              <span class="text-red-700 font-medium">{fatiguePenalty} to hit/dmg</span>
+              <span class="text-red-700 text-[10px]">
+                ({#if restPenalty < 0}rest: {restPenalty}{/if}{#if restPenalty < 0 && marchPenalty < 0}, {/if}{#if marchPenalty < 0}march: {marchPenalty}{/if})
+              </span>
+            {/if}
           </div>
         </div>
 
@@ -441,7 +518,11 @@
               <button class="btn text-xs" on:click={rollWanderingMonster} disabled={!rollDice}>Roll Wandering Monster</button>
               <button class="btn-ghost text-xs" on:click={rollForage} disabled={!rollDice}>Forage</button>
               <button class="btn-ghost text-xs" on:click={rollHunt} disabled={!rollDice}>Hunt (full day)</button>
-              <button class="btn-ghost text-xs" on:click={restDay}>Rest Day</button>
+              {#if forcedMarchDays > 0}
+                <button class="btn text-xs bg-red-800 hover:bg-red-700" on:click={() => { restDay(); startDay(); }}>Rest Day ({-marchPenalty} penalty)</button>
+              {:else}
+                <button class="btn-ghost text-xs" on:click={() => { restDay(); startDay(); }}>Rest Day</button>
+              {/if}
             </div>
 
             {#if windResult}
@@ -504,6 +585,29 @@
               {#if hasRanger}<div>Ranger: improved foraging & hunting</div>{/if}
               {#if hasDruid}<div>Druid: reduced lost chance in forests (1-in-6)</div>{/if}
             </div>
+          </div>
+        {/if}
+
+        <!-- Party Rations -->
+        {#if Object.keys(characterRations).length > 0}
+          <div class="panel">
+            <div class="flex items-center justify-between mb-1">
+              <h2 class="section-title mb-0 border-none pb-0">Rations</h2>
+              <button class="btn-ghost text-xs" on:click={loadRations}>Refresh</button>
+            </div>
+            <div class="space-y-1">
+              {#each Object.values(characterRations) as r}
+                <div class="flex items-center justify-between text-xs">
+                  <span class="text-ink">{r.name}</span>
+                  <span class="{r.quantity <= 0 ? 'text-red-700 font-medium' : r.quantity <= 2 ? 'text-amber-700' : 'text-ink-faint'}">
+                    {r.quantity} days
+                  </span>
+                </div>
+              {/each}
+            </div>
+            {#if totalRations <= 0}
+              <div class="text-xs text-red-700 mt-2 font-medium">Party has no rations! Must forage or hunt.</div>
+            {/if}
           </div>
         {/if}
 
