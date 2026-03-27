@@ -12,6 +12,7 @@
   let alerts = [];
   let alertTimer = null;
   let showManage = false;
+  let turnNote = '';
 
   // Custom timer form
   let newTimerName = '';
@@ -33,7 +34,8 @@
 
   function advance() {
     if (!tracker) return;
-    const events = tracker.advanceTurn();
+    const events = tracker.advanceTurn(turnNote);
+    turnNote = '';
     alerts = events;
     if (alertTimer) clearTimeout(alertTimer);
     alertTimer = setTimeout(() => { alerts = []; alertTimer = null; }, 5000);
@@ -71,6 +73,7 @@
     lantern_expired: 'bg-orange-50 border-orange-400 text-orange-900',
     timer_expired: 'bg-parchment-100 border-ink-faint text-ink',
     darkness: 'bg-red-50 border-red-400 text-red-900',
+    note: 'bg-parchment-100 border-ink-faint/50 text-ink italic',
   };
 </script>
 
@@ -114,8 +117,15 @@
         {/if}
       </div>
 
-      <!-- Buttons -->
+      <!-- Note + Buttons -->
       <div class="flex items-center gap-1">
+        <input
+          class="input text-xs py-0.5 px-2 w-36"
+          type="text"
+          bind:value={turnNote}
+          placeholder="What happened..."
+          on:keydown={(e) => e.key === 'Enter' && advance()}
+        />
         <button class="btn-ghost text-xs" on:click={() => showManage = true} title="Manage resources">Manage</button>
         <button class="btn text-xs" on:click={advance}>
           {status.currentTurn === 0 ? 'Start' : 'Next Turn'}

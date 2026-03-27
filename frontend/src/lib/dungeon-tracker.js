@@ -56,10 +56,15 @@ export function createDungeonTracker(campaignId) {
     } catch { /* storage full */ }
   }
 
-  function advanceTurn() {
+  function advanceTurn(turnNote = '') {
     state.update(s => {
       const currentTurn = s.currentTurn + 1;
       const events = [];
+
+      // Add GM's turn note if provided
+      if (turnNote.trim()) {
+        events.push({ type: 'note', text: turnNote.trim() });
+      }
 
       // Decrement resources
       let torches = s.torches.map(t => ({ ...t, remaining: t.remaining - 1 }));

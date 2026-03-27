@@ -36,6 +36,9 @@
   let turnPage = 0;
   let nextId = 1;
 
+  // Turn note
+  let turnNote = '';
+
   // Custom timer add form
   let newTimerName = '';
   let newTimerDuration = '';
@@ -128,6 +131,12 @@
   function advanceTurn() {
     currentTurn += 1;
     const events = [];
+
+    // Add GM's turn note if provided
+    if (turnNote.trim()) {
+      events.push({ type: 'note', text: turnNote.trim() });
+      turnNote = '';
+    }
 
     // Decrement all active resources
     torches = torches.map(t => ({ ...t, remaining: t.remaining - 1 }));
@@ -355,6 +364,13 @@
           {/if}
         </div>
         <div class="flex items-center gap-2">
+          <input
+            class="input text-sm py-1 px-2 w-48"
+            type="text"
+            bind:value={turnNote}
+            placeholder="What happened this turn..."
+            on:keydown={(e) => e.key === 'Enter' && advanceTurn()}
+          />
           <button class="btn" on:click={advanceTurn}>
             Advance Turn
           </button>
