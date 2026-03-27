@@ -312,7 +312,13 @@
   }
 
   // --- Coin container ---
-  $: coinContainerId = character.coin_container_id ?? null;
+  // If coin container is stashed or doesn't exist in active containers, treat as null
+  $: coinContainerId = (() => {
+    const id = character.coin_container_id ?? null;
+    if (id == null) return null;
+    if (!containerEntries.some(c => c.item.id === id)) return null;
+    return id;
+  })();
   $: coinContainerDropped = coinContainerId != null && droppedContainerIds.has(coinContainerId);
 
   async function setCoinContainer(containerItemId) {

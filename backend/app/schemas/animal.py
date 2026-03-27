@@ -21,15 +21,27 @@ class AnimalTypeInfo(BaseModel):
 
 
 class AnimalCreate(BaseModel):
-    """Request to add an animal to a character."""
-    animal_type: str
+    """Request to add an animal. Use animal_type for templates, or set to 'custom' and provide stats."""
+    animal_type: str = "custom"
     name: str | None = None
     source: str = "purchased"
+    # Custom stats (used when animal_type not in template list)
+    hp: int | None = None
+    ac: int | None = None
+    morale: int | None = None
+    hit_dice: float | None = None
+    base_movement: int | None = None
+    encumbered_movement: int | None = None
+    base_load: int | None = None
+    max_load: int | None = None
+    attacks: list[dict] | None = None
+    abilities: dict | None = None
 
 
 class AnimalUpdate(BaseModel):
     """Request to update an animal."""
     name: str | None = None
+    animal_type: str | None = None
     hp_current: int | None = None
     equipment: dict | None = None
     inventory: list[dict] | None = None

@@ -1678,6 +1678,13 @@ async def stash_item(
         )
         .values(stashed=body.stashed, container_item_id=None if body.stashed else None)
     )
+
+    # If stashing a container that holds coins, clear coin_container_id
+    if body.stashed:
+        character = db.query(Character).filter(Character.id == character_id).first()
+        if character and character.coin_container_id == item_id:
+            character.coin_container_id = None
+
     db.commit()
     return _build_inventory(character_id, db)
 

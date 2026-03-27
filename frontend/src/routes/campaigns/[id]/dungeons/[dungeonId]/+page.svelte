@@ -11,6 +11,7 @@
   import Badge from '$lib/components/shared/Badge.svelte';
   import DiceOverlay from '$lib/components/shared/DiceOverlay.svelte';
   import Markdown from '$lib/components/shared/Markdown.svelte';
+  import DungeonTimeWidget from '$lib/components/dungeon/DungeonTimeWidget.svelte';
 
   const campaignId = $page.params.id;
   const dungeonId = $page.params.dungeonId;
@@ -281,6 +282,11 @@
         <button class="btn text-xs" on:click={openAddRoom}>+ Add Room</button>
       {/if}
     </div>
+
+    <!-- Dungeon Time Widget -->
+    {#if isGM}
+      <DungeonTimeWidget {campaignId} {rollDice} />
+    {/if}
 
     {#if rooms.length === 0}
       <div class="panel text-center py-8">
