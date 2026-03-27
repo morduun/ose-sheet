@@ -26,8 +26,20 @@
   let takeQty = 1;
   let takingItem = false;
 
+  // Treasury coins
+  let treasury = { cp: 0, sp: 0, ep: 0, gp: 0, pp: 0 };
+
+  // Take coins modal
+  let showTakeCoinModal = false;
+  let takeCoinCharId = null;
+  let takeCoinAmounts = { cp: 0, sp: 0, ep: 0, gp: 0, pp: 0 };
+  let takingCoins = false;
+
+  $: hasTreasury = (treasury.cp || 0) + (treasury.sp || 0) + (treasury.ep || 0) + (treasury.gp || 0) + (treasury.pp || 0) > 0;
+
   onMount(() => {
     loadStash();
+    loadTreasury();
   });
 
   async function loadStash() {
@@ -38,6 +50,41 @@
       error = e.message;
     } finally {
       loading = false;
+    }
+  }
+
+  async function loadTreasury() {
+    try {
+      treasury = await api.get(`/campaigns/${campaignId}/treasury`);
+    } catch {
+      treasury = { cp: 0, sp: 0, ep: 0, gp: 0, pp: 0 };
+    }
+  }
+
+  function openTakeCoinModal() {
+    takeCoinCharId = characters.length > 0 ? characters[0].id : null;
+    takeCoinAmounts = { cp: 0, sp: 0, ep: 0, gp: 0, pp: 0 };
+    showTakeCoinModal = true;
+  }
+
+  async function takeCoins() {
+    if (!takeCoinCharId) return;
+    takingCoins = true;
+    try {
+      await api.post(`/campaigns/${campaignId}/treasury/take`, {
+        character_id: parseInt(takeCoinCharId),
+        cp: parseInt(takeCoinAmounts.cp) || 0,
+        sp: parseInt(takeCoinAmounts.sp) || 0,
+        ep: parseInt(takeCoinAmounts.ep) || 0,
+        gp: parseInt(takeCoinAmounts.gp) || 0,
+        pp: parseInt(takeCoinAmounts.pp) || 0,
+      });
+      await loadTreasury();
+      showTakeCoinModal = false;
+    } catch (e) {
+      alert(e.message);
+    } finally {
+      takingCoins = false;
     }
   }
 
@@ -131,11 +178,31 @@
     {/if}
   </div>
 
+  <!-- Treasury Coins -->
+  {#if hasTreasury}
+    <div class="mb-4 pb-4 border-b border-parchment-200">
+      <div class="flex items-center justify-between mb-2">
+        <span class="text-xs text-ink-faint uppercase tracking-wide">Party Treasury</span>
+        <button class="btn text-xs" on:click={openTakeCoinModal}>Take Coins</button>
+      </div>
+      <div class="flex flex-wrap gap-4">
+        {#each [['pp','PP'],['gp','GP'],['ep','EP'],['sp','SP'],['cp','CP']] as [key, label]}
+          {#if (treasury[key] || 0) > 0}
+            <div class="text-center">
+              <div class="font-serif text-xl text-ink">{treasury[key].toLocaleString()}</div>
+              <div class="text-xs text-ink-faint">{label}</div>
+            </div>
+          {/if}
+        {/each}
+      </div>
+    </div>
+  {/if}
+
   {#if loading}
     <p class="text-ink-faint text-sm">Loading...</p>
   {:else if error}
     <p class="text-red-700 text-sm">{error}</p>
-  {:else if stashItems.length === 0}
+  {:else if stashItems.length === 0 && !hasTreasury}
     <p class="text-ink-faint text-sm text-center py-4">The party stash is empty.</p>
   {:else}
     <div class="space-y-2">
@@ -284,4 +351,30 @@
       </button>
     </div>
   {/if}
+</Modal>
+
+<!-- Take Coins Modal -->
+<Modal bind:open={showTakeCoinModal} title="Take Coins from Treasury">
+  <div class="space-y-4">
+    <div>
+      <label class="text-xs text-ink-faint" for="tc-char">Character</label>
+      <select id="tc-char" class="input w-full" bind:value={takeCoinCharId}>
+        {#each characters as c}
+          <option value={c.id}>{c.name}</option>
+        {/each}
+      </select>
+    </div>
+    <div class="flex flex-wrap gap-3">
+      {#each [['cp','CP'],['sp','SP'],['ep','EP'],['gp','GP'],['pp','PP']] as [key, label]}
+        <div class="flex flex-col items-center">
+          <label class="text-[10px] text-ink-faint uppercase" for="tc-{key}">{label}</label>
+          <input id="tc-{key}" class="input w-16 text-center" type="number" min="0" max={treasury[key] || 0} bind:value={takeCoinAmounts[key]} />
+          <span class="text-[10px] text-ink-faint">/ {treasury[key] || 0}</span>
+        </div>
+      {/each}
+    </div>
+    <button class="btn w-full" on:click={takeCoins} disabled={takingCoins || !takeCoinCharId}>
+      {takingCoins ? 'Taking...' : 'Take Coins'}
+    </button>
+  </div>
 </Modal>

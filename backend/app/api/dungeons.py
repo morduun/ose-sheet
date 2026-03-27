@@ -188,7 +188,7 @@ async def create_room(
         items=[i.model_dump() for i in req.items],
         traps=[t.model_dump() for t in req.traps],
         exits=[e.model_dump() for e in req.exits],
-        currency=req.currency.model_dump() if req.currency else None,
+        currency=[c.model_dump() for c in req.currency] if req.currency else [],
     )
     db.add(room)
     db.commit()
@@ -236,7 +236,7 @@ async def update_room(
     if req.exits is not None:
         room.exits = [e.model_dump() for e in req.exits]
     if req.currency is not None:
-        room.currency = req.currency.model_dump()
+        room.currency = [c.model_dump() for c in req.currency]
 
     db.commit()
     db.refresh(room)
@@ -325,6 +325,39 @@ async def reveal_room_item(
     from sqlalchemy.orm.attributes import flag_modified
     room.items = items
     flag_modified(room, "items")
+
+    db.commit()
+    db.refresh(room)
+    return room
+
+
+@router.post("/{dungeon_id}/rooms/{room_id}/reveal-currency/{stash_index}", response_model=DungeonRoomResponse)
+async def reveal_room_currency(
+    campaign_id: int,
+    dungeon_id: int,
+    room_id: int,
+    stash_index: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Reveal a hidden currency stash in a room."""
+    campaign = _get_campaign_or_404(db, campaign_id)
+    _check_gm(current_user, campaign)
+
+    room = db.query(DungeonRoom).filter(
+        DungeonRoom.id == room_id, DungeonRoom.dungeon_id == dungeon_id
+    ).first()
+    if not room:
+        raise HTTPException(status_code=404, detail="Room not found")
+
+    stashes = list(room.currency or [])
+    if stash_index < 0 or stash_index >= len(stashes):
+        raise HTTPException(status_code=400, detail="Invalid currency stash index")
+
+    stashes[stash_index]["hidden"] = False
+    from sqlalchemy.orm.attributes import flag_modified
+    room.currency = stashes
+    flag_modified(room, "currency")
 
     db.commit()
     db.refresh(room)

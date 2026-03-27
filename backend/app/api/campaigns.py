@@ -675,7 +675,7 @@ class StashCoinTakeRequest(BaseModel):
     pp: int = 0
 
 
-@router.get("/{campaign_id}/stash/coins")
+@router.get("/{campaign_id}/treasury")
 async def get_stash_coins(
     campaign_id: int,
     db: Session = Depends(get_db),
@@ -694,7 +694,7 @@ async def get_stash_coins(
     }
 
 
-@router.post("/{campaign_id}/stash/coins")
+@router.post("/{campaign_id}/treasury")
 async def add_stash_coins(
     campaign_id: int,
     req: StashCoinRequest,
@@ -722,7 +722,7 @@ async def add_stash_coins(
     }
 
 
-@router.post("/{campaign_id}/stash/coins/take")
+@router.post("/{campaign_id}/treasury/take")
 async def take_stash_coins(
     campaign_id: int,
     req: StashCoinTakeRequest,
@@ -767,7 +767,7 @@ async def take_stash_coins(
     }
 
 
-@router.post("/{campaign_id}/stash/coins/return")
+@router.post("/{campaign_id}/treasury/return")
 async def return_stash_coins(
     campaign_id: int,
     req: StashCoinTakeRequest,

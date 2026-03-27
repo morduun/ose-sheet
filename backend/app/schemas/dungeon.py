@@ -33,12 +33,15 @@ class RoomExit(BaseModel):
     key_hint: str | None = None
 
 
-class RoomCurrency(BaseModel):
+class RoomCurrencyStash(BaseModel):
+    description: str = ""
     cp: int = 0
     sp: int = 0
     ep: int = 0
     gp: int = 0
     pp: int = 0
+    hidden: bool = False
+    search_chance: int | None = None  # X-in-6
 
 
 # --- Room schemas ---
@@ -54,7 +57,7 @@ class DungeonRoomCreate(BaseModel):
     items: list[RoomItem] = []
     traps: list[RoomTrap] = []
     exits: list[RoomExit] = []
-    currency: RoomCurrency | None = None
+    currency: list[RoomCurrencyStash] = []
 
 
 class DungeonRoomUpdate(BaseModel):
@@ -68,7 +71,7 @@ class DungeonRoomUpdate(BaseModel):
     items: list[RoomItem] | None = None
     traps: list[RoomTrap] | None = None
     exits: list[RoomExit] | None = None
-    currency: RoomCurrency | None = None
+    currency: list[RoomCurrencyStash] = []
 
 
 class DungeonRoomResponse(BaseModel):
@@ -84,7 +87,7 @@ class DungeonRoomResponse(BaseModel):
     items: list[dict] = []
     traps: list[dict] = []
     exits: list[dict] = []
-    currency: dict | None = None
+    currency: list[dict] = []
 
     model_config = {"from_attributes": True}
 

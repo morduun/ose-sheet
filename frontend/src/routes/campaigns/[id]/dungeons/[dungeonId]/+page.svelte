@@ -88,6 +88,7 @@
       items: [],
       traps: [],
       exits: [],
+      currency: [],
     };
   }
 
@@ -109,6 +110,7 @@
       items: [...(room.items || [])],
       traps: [...(room.traps || [])],
       exits: [...(room.exits || [])],
+      currency: (room.currency || []).map(c => ({ ...c })),
     };
     showRoomEditor = true;
   }
@@ -191,6 +193,39 @@
       await api.patch(`/campaigns/${campaignId}/dungeons/${dungeonId}/rooms/${room.id}`, {
         items: updatedItems,
       });
+      await reload();
+    } catch (e) {
+      alert(e.message);
+    }
+  }
+
+  // Collect a single currency stash to party treasury
+  async function collectCurrencyStash(room, stashIndex) {
+    const stash = (room.currency || [])[stashIndex];
+    if (!stash) return;
+    try {
+      await api.post(`/campaigns/${campaignId}/treasury`, {
+        cp: stash.cp || 0,
+        sp: stash.sp || 0,
+        ep: stash.ep || 0,
+        gp: stash.gp || 0,
+        pp: stash.pp || 0,
+      });
+      // Remove this stash from room
+      const updated = [...(room.currency || [])];
+      updated.splice(stashIndex, 1);
+      await api.patch(`/campaigns/${campaignId}/dungeons/${dungeonId}/rooms/${room.id}`, {
+        currency: updated,
+      });
+      await reload();
+    } catch (e) {
+      alert(e.message);
+    }
+  }
+
+  async function revealCurrencyStash(room, stashIndex) {
+    try {
+      await api.post(`/campaigns/${campaignId}/dungeons/${dungeonId}/rooms/${room.id}/reveal-currency/${stashIndex}`);
       await reload();
     } catch (e) {
       alert(e.message);
@@ -399,13 +434,50 @@
                 </div>
               {/if}
 
-              <!-- Treasure Type -->
-              {#if selectedRoom.treasure_type_key}
+              <!-- Currency Stashes -->
+              {#if (selectedRoom.currency || []).length > 0}
                 <div class="mb-4">
-                  <h3 class="text-xs text-ink-faint uppercase tracking-wide mb-1">Treasure Type</h3>
-                  <span class="text-sm text-ink">{selectedRoom.treasure_type_key}</span>
+                  <h3 class="text-xs text-ink-faint uppercase tracking-wide mb-1">Currency</h3>
+                  <div class="space-y-2">
+                    {#each selectedRoom.currency as stash, idx}
+                      {#if stash.hidden}
+                        {#if isGM}
+                          <div class="flex items-center justify-between text-sm border border-parchment-200 rounded p-2 opacity-60">
+                            <div>
+                              <span class="text-ink-faint italic">{stash.description || 'Hidden coins'}</span>
+                              <Badge label="Hidden" variant="gm" />
+                              {#if stash.search_chance}
+                                <span class="text-xs text-ink-faint">({stash.search_chance}-in-6)</span>
+                              {/if}
+                            </div>
+                            <button class="btn-ghost text-xs" on:click={() => revealCurrencyStash(selectedRoom, idx)}>Reveal</button>
+                          </div>
+                        {/if}
+                      {:else}
+                        <div class="border border-parchment-200 rounded p-2">
+                          {#if stash.description}
+                            <div class="text-xs text-ink-faint mb-1">{stash.description}</div>
+                          {/if}
+                          <div class="flex flex-wrap gap-3 items-center">
+                            {#each [['pp','PP'],['gp','GP'],['ep','EP'],['sp','SP'],['cp','CP']] as [key, label]}
+                              {#if (stash[key] || 0) > 0}
+                                <div class="text-center">
+                                  <div class="font-serif text-lg text-ink">{stash[key].toLocaleString()}</div>
+                                  <div class="text-xs text-ink-faint">{label}</div>
+                                </div>
+                              {/if}
+                            {/each}
+                            {#if isGM}
+                              <button class="btn text-xs ml-auto" on:click={() => collectCurrencyStash(selectedRoom, idx)}>Collect</button>
+                            {/if}
+                          </div>
+                        </div>
+                      {/if}
+                    {/each}
+                  </div>
                 </div>
               {/if}
+
 
               <!-- Notes -->
               {#if selectedRoom.notes}
@@ -448,15 +520,39 @@
       <textarea id="rm-desc" class="input w-full resize-y font-mono text-sm" rows="6" bind:value={roomForm.description} placeholder="What the characters see when they enter..."></textarea>
     </div>
 
-    <div class="grid grid-cols-2 gap-3">
-      <div>
-        <label class="block text-xs text-ink-faint mb-1" for="rm-tt">Treasure Type</label>
-        <input id="rm-tt" class="input w-full" type="text" bind:value={roomForm.treasure_type_key} placeholder="C or C + 1000gp" />
+    <div>
+      <label class="block text-xs text-ink-faint mb-1" for="rm-notes">Notes</label>
+      <textarea id="rm-notes" class="input w-full resize-none text-sm" rows="2" bind:value={roomForm.notes} placeholder="GM notes..."></textarea>
+    </div>
+
+    <!-- Currency Stashes -->
+    <div>
+      <div class="flex items-center justify-between mb-1">
+        <span class="text-xs text-ink-faint uppercase tracking-wide">Currency</span>
+        <button type="button" class="btn-ghost text-xs" on:click={() => roomForm.currency = [...roomForm.currency, { description: '', cp: 0, sp: 0, ep: 0, gp: 0, pp: 0, hidden: false, search_chance: null }]}>+ Add</button>
       </div>
-      <div>
-        <label class="block text-xs text-ink-faint mb-1" for="rm-notes">Notes</label>
-        <input id="rm-notes" class="input w-full" type="text" bind:value={roomForm.notes} placeholder="GM notes..." />
-      </div>
+      {#each roomForm.currency as stash, i}
+        <div class="border border-parchment-200 rounded p-2 mb-2 space-y-1">
+          <div class="flex gap-2">
+            <input class="input flex-1 text-sm" type="text" bind:value={stash.description} placeholder="Where are these coins? (e.g. 'in locked chest')" />
+            <label class="flex items-center gap-1 text-xs text-ink-faint shrink-0">
+              <input type="checkbox" bind:checked={stash.hidden} class="accent-ink" /> Hidden
+            </label>
+            {#if stash.hidden}
+              <input class="input w-14 text-sm" type="number" min="1" max="6" bind:value={stash.search_chance} placeholder="X/6" />
+            {/if}
+            <button type="button" class="btn-danger text-xs px-1.5 py-0.5" on:click={() => roomForm.currency = roomForm.currency.filter((_, idx) => idx !== i)}>X</button>
+          </div>
+          <div class="flex flex-wrap gap-2">
+            {#each [['cp','CP'],['sp','SP'],['ep','EP'],['gp','GP'],['pp','PP']] as [key, label]}
+              <div class="flex flex-col items-center">
+                <label class="text-[10px] text-ink-faint uppercase">{label}</label>
+                <input class="input w-14 text-center text-sm" type="number" min="0" bind:value={stash[key]} />
+              </div>
+            {/each}
+          </div>
+        </div>
+      {/each}
     </div>
 
     <!-- Monsters -->
