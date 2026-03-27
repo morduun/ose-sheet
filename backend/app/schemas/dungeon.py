@@ -33,6 +33,14 @@ class RoomExit(BaseModel):
     key_hint: str | None = None
 
 
+class RoomCurrency(BaseModel):
+    cp: int = 0
+    sp: int = 0
+    ep: int = 0
+    gp: int = 0
+    pp: int = 0
+
+
 # --- Room schemas ---
 
 class DungeonRoomCreate(BaseModel):
@@ -46,6 +54,7 @@ class DungeonRoomCreate(BaseModel):
     items: list[RoomItem] = []
     traps: list[RoomTrap] = []
     exits: list[RoomExit] = []
+    currency: RoomCurrency | None = None
 
 
 class DungeonRoomUpdate(BaseModel):
@@ -59,6 +68,7 @@ class DungeonRoomUpdate(BaseModel):
     items: list[RoomItem] | None = None
     traps: list[RoomTrap] | None = None
     exits: list[RoomExit] | None = None
+    currency: RoomCurrency | None = None
 
 
 class DungeonRoomResponse(BaseModel):
@@ -74,6 +84,7 @@ class DungeonRoomResponse(BaseModel):
     items: list[dict] = []
     traps: list[dict] = []
     exits: list[dict] = []
+    currency: dict | None = None
 
     model_config = {"from_attributes": True}
 
@@ -111,3 +122,24 @@ class DungeonResponse(BaseModel):
     rooms: list[DungeonRoomResponse] = []
 
     model_config = {"from_attributes": True}
+
+
+# --- Stash coin schemas ---
+
+class StashCoinRequest(BaseModel):
+    """Add or remove coins from the party treasury."""
+    cp: int = 0
+    sp: int = 0
+    ep: int = 0
+    gp: int = 0
+    pp: int = 0
+
+
+class StashCoinTakeRequest(BaseModel):
+    """Take coins from treasury to a character."""
+    character_id: int
+    cp: int = 0
+    sp: int = 0
+    ep: int = 0
+    gp: int = 0
+    pp: int = 0

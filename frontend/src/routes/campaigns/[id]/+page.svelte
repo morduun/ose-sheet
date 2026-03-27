@@ -9,6 +9,7 @@
   import Badge from '$lib/components/shared/Badge.svelte';
   import PartyStash from '$lib/components/campaign/PartyStash.svelte';
   import VehiclePanel from '$lib/components/campaign/VehiclePanel.svelte';
+  import DungeonList from '$lib/components/campaign/DungeonList.svelte';
 
   const campaignId = $page.params.id;
 
@@ -114,6 +115,12 @@
         class={activeTab === 'vehicles' ? 'tab-active' : 'tab'}
         on:click={() => (activeTab = 'vehicles')}
       >Vehicles</button>
+      {#if isGM}
+        <button
+          class={activeTab === 'dungeons' ? 'tab-active' : 'tab'}
+          on:click={() => (activeTab = 'dungeons')}
+        >Dungeons</button>
+      {/if}
     </div>
 
     {#if activeTab === 'adventurers'}
@@ -240,6 +247,8 @@
       <PartyStash campaignId={campaignId} isGM={isGM} characters={myCharacters} />
     {:else if activeTab === 'vehicles'}
       <VehiclePanel campaignId={campaignId} isGM={isGM} characters={myCharacters} />
+    {:else if activeTab === 'dungeons'}
+      <DungeonList {campaignId} {isGM} />
     {/if}
   </PageWrapper>
 {/if}

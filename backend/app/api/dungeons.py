@@ -49,7 +49,7 @@ async def list_dungeons(
 ):
     """List all dungeons in a campaign with room count and progress."""
     campaign = _get_campaign_or_404(db, campaign_id)
-    _check_view(current_user, campaign)
+    _check_gm(current_user, campaign)
 
     dungeons = db.query(Dungeon).filter(Dungeon.campaign_id == campaign_id).order_by(Dungeon.name).all()
     result = []
@@ -75,7 +75,7 @@ async def get_dungeon(
 ):
     """Get a dungeon with all its rooms."""
     campaign = _get_campaign_or_404(db, campaign_id)
-    _check_view(current_user, campaign)
+    _check_gm(current_user, campaign)
 
     dungeon = db.query(Dungeon).filter(
         Dungeon.id == dungeon_id, Dungeon.campaign_id == campaign_id
@@ -188,6 +188,7 @@ async def create_room(
         items=[i.model_dump() for i in req.items],
         traps=[t.model_dump() for t in req.traps],
         exits=[e.model_dump() for e in req.exits],
+        currency=req.currency.model_dump() if req.currency else None,
     )
     db.add(room)
     db.commit()
@@ -234,6 +235,8 @@ async def update_room(
         room.traps = [t.model_dump() for t in req.traps]
     if req.exits is not None:
         room.exits = [e.model_dump() for e in req.exits]
+    if req.currency is not None:
+        room.currency = req.currency.model_dump()
 
     db.commit()
     db.refresh(room)
@@ -318,7 +321,10 @@ async def reveal_room_item(
         raise HTTPException(status_code=400, detail="Invalid item index")
 
     items[item_index]["hidden"] = False
+    # Force SQLAlchemy to detect the JSON mutation
+    from sqlalchemy.orm.attributes import flag_modified
     room.items = items
+    flag_modified(room, "items")
 
     db.commit()
     db.refresh(room)

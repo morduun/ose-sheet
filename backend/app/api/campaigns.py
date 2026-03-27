@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from sqlalchemy import select, insert, update as sa_update, delete as sa_delete
 from app.database import get_db
@@ -650,6 +651,168 @@ async def return_to_stash(
     if contents_moved:
         msg += f" (with {', '.join(contents_moved)})"
     return {"message": msg}
+
+
+# --- Party Treasury (Stash Coins) ---
+
+
+class StashCoinRequest(BaseModel):
+    """Add coins to the party treasury."""
+    cp: int = 0
+    sp: int = 0
+    ep: int = 0
+    gp: int = 0
+    pp: int = 0
+
+
+class StashCoinTakeRequest(BaseModel):
+    """Take coins from treasury to a character."""
+    character_id: int
+    cp: int = 0
+    sp: int = 0
+    ep: int = 0
+    gp: int = 0
+    pp: int = 0
+
+
+@router.get("/{campaign_id}/stash/coins")
+async def get_stash_coins(
+    campaign_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Get the party treasury coin totals."""
+    campaign = _get_campaign_or_404(db, campaign_id)
+    if not can_view_campaign(current_user, campaign):
+        raise HTTPException(status_code=403, detail="Not a member of this campaign")
+    return {
+        "cp": campaign.stash_cp,
+        "sp": campaign.stash_sp,
+        "ep": campaign.stash_ep,
+        "gp": campaign.stash_gp,
+        "pp": campaign.stash_pp,
+    }
+
+
+@router.post("/{campaign_id}/stash/coins")
+async def add_stash_coins(
+    campaign_id: int,
+    req: StashCoinRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Add coins to the party treasury."""
+    campaign = _get_campaign_or_404(db, campaign_id)
+    if not can_view_campaign(current_user, campaign):
+        raise HTTPException(status_code=403, detail="Not a member of this campaign")
+
+    campaign.stash_cp = (campaign.stash_cp or 0) + req.cp
+    campaign.stash_sp = (campaign.stash_sp or 0) + req.sp
+    campaign.stash_ep = (campaign.stash_ep or 0) + req.ep
+    campaign.stash_gp = (campaign.stash_gp or 0) + req.gp
+    campaign.stash_pp = (campaign.stash_pp or 0) + req.pp
+    db.commit()
+
+    return {
+        "cp": campaign.stash_cp,
+        "sp": campaign.stash_sp,
+        "ep": campaign.stash_ep,
+        "gp": campaign.stash_gp,
+        "pp": campaign.stash_pp,
+    }
+
+
+@router.post("/{campaign_id}/stash/coins/take")
+async def take_stash_coins(
+    campaign_id: int,
+    req: StashCoinTakeRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Take coins from the party treasury to a character's purse."""
+    campaign = _get_campaign_or_404(db, campaign_id)
+    if not can_view_campaign(current_user, campaign):
+        raise HTTPException(status_code=403, detail="Not a member of this campaign")
+
+    character = db.query(Character).filter(Character.id == req.character_id).first()
+    if not character or character.campaign_id != campaign_id:
+        raise HTTPException(status_code=400, detail="Character not in this campaign")
+
+    # Validate treasury has enough
+    for coin, amount in [("cp", req.cp), ("sp", req.sp), ("ep", req.ep), ("gp", req.gp), ("pp", req.pp)]:
+        if amount > 0 and (getattr(campaign, f"stash_{coin}") or 0) < amount:
+            raise HTTPException(status_code=400, detail=f"Not enough {coin.upper()} in treasury")
+
+    # Move coins
+    campaign.stash_cp = (campaign.stash_cp or 0) - req.cp
+    campaign.stash_sp = (campaign.stash_sp or 0) - req.sp
+    campaign.stash_ep = (campaign.stash_ep or 0) - req.ep
+    campaign.stash_gp = (campaign.stash_gp or 0) - req.gp
+    campaign.stash_pp = (campaign.stash_pp or 0) - req.pp
+
+    character.copper = (character.copper or 0) + req.cp
+    character.silver = (character.silver or 0) + req.sp
+    character.electrum = (character.electrum or 0) + req.ep
+    character.gold = (character.gold or 0) + req.gp
+    character.platinum = (character.platinum or 0) + req.pp
+
+    db.commit()
+
+    return {
+        "message": f"{character.name} took coins from the treasury",
+        "treasury": {
+            "cp": campaign.stash_cp, "sp": campaign.stash_sp, "ep": campaign.stash_ep,
+            "gp": campaign.stash_gp, "pp": campaign.stash_pp,
+        },
+    }
+
+
+@router.post("/{campaign_id}/stash/coins/return")
+async def return_stash_coins(
+    campaign_id: int,
+    req: StashCoinTakeRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Return coins from a character's purse to the party treasury."""
+    campaign = _get_campaign_or_404(db, campaign_id)
+    if not can_view_campaign(current_user, campaign):
+        raise HTTPException(status_code=403, detail="Not a member of this campaign")
+
+    character = db.query(Character).filter(Character.id == req.character_id).first()
+    if not character or character.campaign_id != campaign_id:
+        raise HTTPException(status_code=400, detail="Character not in this campaign")
+
+    # Validate character has enough
+    for coin, char_field, amount in [
+        ("cp", "copper", req.cp), ("sp", "silver", req.sp), ("ep", "electrum", req.ep),
+        ("gp", "gold", req.gp), ("pp", "platinum", req.pp),
+    ]:
+        if amount > 0 and (getattr(character, char_field) or 0) < amount:
+            raise HTTPException(status_code=400, detail=f"{character.name} doesn't have enough {coin.upper()}")
+
+    # Move coins
+    campaign.stash_cp = (campaign.stash_cp or 0) + req.cp
+    campaign.stash_sp = (campaign.stash_sp or 0) + req.sp
+    campaign.stash_ep = (campaign.stash_ep or 0) + req.ep
+    campaign.stash_gp = (campaign.stash_gp or 0) + req.gp
+    campaign.stash_pp = (campaign.stash_pp or 0) + req.pp
+
+    character.copper = (character.copper or 0) - req.cp
+    character.silver = (character.silver or 0) - req.sp
+    character.electrum = (character.electrum or 0) - req.ep
+    character.gold = (character.gold or 0) - req.gp
+    character.platinum = (character.platinum or 0) - req.pp
+
+    db.commit()
+
+    return {
+        "message": f"{character.name} returned coins to the treasury",
+        "treasury": {
+            "cp": campaign.stash_cp, "sp": campaign.stash_sp, "ep": campaign.stash_ep,
+            "gp": campaign.stash_gp, "pp": campaign.stash_pp,
+        },
+    }
 
 
 # --- Referee Panel Endpoint ---

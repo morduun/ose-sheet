@@ -25,6 +25,14 @@ class Campaign(Base):
     description = Column(String, nullable=True)
     gm_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     invite_code = Column(String, unique=True, index=True, nullable=False)
+
+    # Party treasury (coins in the shared stash)
+    stash_cp = Column(Integer, default=0, server_default="0")
+    stash_sp = Column(Integer, default=0, server_default="0")
+    stash_ep = Column(Integer, default=0, server_default="0")
+    stash_gp = Column(Integer, default=0, server_default="0")
+    stash_pp = Column(Integer, default=0, server_default="0")
+
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 

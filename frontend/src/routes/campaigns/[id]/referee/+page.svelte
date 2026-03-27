@@ -259,6 +259,37 @@
     monsterInstances = monsterInstances;
   }
 
+  async function loadDungeonMonsters() {
+    const key = `referee_load_monsters_${campaignId}`;
+    const raw = localStorage.getItem(key);
+    if (!raw) return;
+    localStorage.removeItem(key);
+
+    try {
+      const entries = JSON.parse(raw);
+      for (const entry of entries) {
+        const monster = await api.get(`/monsters/${entry.monsterId}`);
+        if (!monster) continue;
+        const qty = entry.quantity || 1;
+        for (let i = 0; i < qty; i++) {
+          const instanceId = `m_${nextMonsterId++}`;
+          const suffix = qty > 1 ? ` #${i + 1}` : '';
+          monsterInstances = [...monsterInstances, {
+            instanceId,
+            monsterId: monster.id,
+            name: monster.name + suffix,
+            monster,
+            hp_current: monster.hp ?? 1,
+            hp_max: monster.hp ?? 1,
+          }];
+        }
+      }
+      saveEncounter();
+    } catch {
+      // silently fail — monsters may have been deleted
+    }
+  }
+
   onMount(async () => {
     userId = getUserId();
     loadLocalState();
@@ -271,6 +302,7 @@
     }
     await fetchRefereeData();
     await rehydrateMonsters();
+    await loadDungeonMonsters();
     loading = false;
     pollTimer = setInterval(fetchRefereeData, 5000);
   });

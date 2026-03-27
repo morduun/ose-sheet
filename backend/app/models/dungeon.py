@@ -56,6 +56,8 @@ class DungeonRoom(Base):
     traps = Column(JSON, nullable=True, default=list)
     # exits: [{direction, description, locked, key_hint}]
     exits = Column(JSON, nullable=True, default=list)
+    # currency: {cp, sp, ep, gp, pp}
+    currency = Column(JSON, nullable=True)
 
     # Relationships
     dungeon = relationship("Dungeon", back_populates="rooms")
