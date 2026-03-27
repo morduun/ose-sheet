@@ -57,6 +57,7 @@ class Character(Base):
     electrum = Column(Integer, default=0)
     gold = Column(Integer, default=0)
     platinum = Column(Integer, default=0)
+    coin_container_id = Column(Integer, ForeignKey("items.id"), nullable=True)  # Which container holds coins
 
     # Character State
     status = Column(String, default="active", nullable=False, server_default="active")  # "active", "independent", "fallen"

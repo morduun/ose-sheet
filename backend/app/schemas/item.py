@@ -100,6 +100,7 @@ class CharacterInventoryEntry(BaseModel):
     identified: bool = False
     container_item_id: int | None = None  # items.id of the container holding this item
     dropped: bool = False  # True if this container has been dropped
+    stashed: bool = False  # True if stored at home base (not carried)
     state: dict | None = None  # Per-character item state (fill, contents, etc.)
 
 
@@ -111,6 +112,7 @@ class CharacterInventoryEntryGM(BaseModel):
     identified: bool = False
     container_item_id: int | None = None
     dropped: bool = False
+    stashed: bool = False
     state: dict | None = None
 
 

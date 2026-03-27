@@ -45,32 +45,40 @@
   ];
 
   // Identify containers and dropped state
-  $: containerEntries = items.filter(e => (e.item?.item_metadata?.capacity ?? 0) > 0);
+  $: containerEntries = items.filter(e => !e.stashed && (e.item?.item_metadata?.capacity ?? 0) > 0);
   $: droppedContainerIds = new Set(
     items.filter(e => e.dropped && (e.item?.item_metadata?.capacity ?? 0) > 0).map(e => e.item.id)
   );
 
-  // Items NOT in any container (and not themselves containers)
+  // Items NOT in any container (and not themselves containers, and not stashed)
   $: carriedItems = items.filter(e =>
-    !e.container_item_id && !(e.item?.item_metadata?.capacity > 0)
+    !e.stashed && !e.container_item_id && !(e.item?.item_metadata?.capacity > 0)
   );
 
-  // Build container groups
+  // Items at home base
+  $: stashedItems = items.filter(e => e.stashed);
+
+  // Build container groups (include coin weight if coins are in this container)
   $: containerGroups = containerEntries.map(c => {
     const contents = items.filter(e => e.container_item_id === c.item.id);
-    const load = contents.reduce((sum, e) => sum + ((e.item?.weight ?? 0) * e.quantity), 0);
+    let load = contents.reduce((sum, e) => sum + ((e.item?.weight ?? 0) * e.quantity), 0);
+    const hasCoinWeight = character.coin_container_id === c.item.id;
+    if (hasCoinWeight) load += rawCoinWeight;
     const capacity = c.item.item_metadata.capacity;
-    return { entry: c, contents, load, capacity };
+    return { entry: c, contents, load, capacity, hasCoinWeight };
   });
 
   // Encumbrance excluding dropped containers and their contents
   $: itemWeight = items.reduce((sum, e) => {
+    if (e.stashed) return sum;
     if (e.dropped) return sum;
     if (droppedContainerIds.has(e.container_item_id)) return sum;
     return sum + ((e.item?.weight ?? 0) * e.quantity);
   }, 0);
-  $: coinWeight = (character.copper ?? 0) + (character.silver ?? 0)
+  $: rawCoinWeight = (character.copper ?? 0) + (character.silver ?? 0)
     + (character.electrum ?? 0) + (character.gold ?? 0) + (character.platinum ?? 0);
+  $: coinWeight = (character.coin_container_id != null && droppedContainerIds.has(character.coin_container_id))
+    ? 0 : rawCoinWeight;
   $: encumbrance = Math.round(itemWeight + coinWeight);
   $: encMovement = ENC_TABLE.find(([t]) => encumbrance <= t)?.[1] ?? 0;
   $: encPct = Math.min(100, (encumbrance / MAX_CARRY) * 100);
@@ -280,6 +288,46 @@
     }
   }
 
+  // --- Stash (home base) ---
+  async function stashItem(entry) {
+    try {
+      items = await api.post(
+        `/characters/${character.id}/items/${entry.item.id}/stash`,
+        { stashed: true }
+      );
+    } catch (e) {
+      alert(e.message);
+    }
+  }
+
+  async function retrieveItem(entry) {
+    try {
+      items = await api.post(
+        `/characters/${character.id}/items/${entry.item.id}/stash`,
+        { stashed: false }
+      );
+    } catch (e) {
+      alert(e.message);
+    }
+  }
+
+  // --- Coin container ---
+  $: coinContainerId = character.coin_container_id ?? null;
+  $: coinContainerDropped = coinContainerId != null && droppedContainerIds.has(coinContainerId);
+
+  async function setCoinContainer(containerItemId) {
+    try {
+      await api.patch(`/characters/${character.id}`, {
+        coin_container_id: containerItemId || null,
+      });
+      character.coin_container_id = containerItemId || null;
+      character = character;
+      dispatch('ac-changed');
+    } catch (e) {
+      alert(e.message);
+    }
+  }
+
   // --- Container functions ---
 
   async function moveItem(entry, containerItemId) {
@@ -448,6 +496,25 @@
         Save
       </button>
     </div>
+    {#if containerEntries.length > 0}
+      <div class="flex items-center gap-2 mt-3 pt-2 border-t border-parchment-200">
+        <span class="text-xs text-ink-faint">Kept in:</span>
+        <select
+          class="input text-xs py-0.5 px-1"
+          value={coinContainerId ?? ''}
+          on:change={(e) => setCoinContainer(e.target.value === '' ? null : parseInt(e.target.value))}
+        >
+          <option value="">Carried (loose)</option>
+          {#each containerEntries as c}
+            <option value={c.item.id}>{c.item.name}</option>
+          {/each}
+        </select>
+        <span class="text-xs text-ink-faint">({rawCoinWeight} cn)</span>
+        {#if coinContainerDropped}
+          <span class="text-xs text-red-700">Dropped!</span>
+        {/if}
+      </div>
+    {/if}
   </div>
 
   <!-- Inventory list -->
@@ -559,7 +626,13 @@
           <!-- Container contents -->
           {#if !isCollapsed}
             <div class="px-3 py-2 space-y-2">
-              {#if cg.contents.length === 0}
+              {#if cg.hasCoinWeight}
+                <div class="flex items-center justify-between text-sm border-b border-parchment-200 pb-2">
+                  <span class="text-ink-faint italic">Currency</span>
+                  <span class="text-xs text-ink-faint">{rawCoinWeight} cn</span>
+                </div>
+              {/if}
+              {#if cg.contents.length === 0 && !cg.hasCoinWeight}
                 <p class="text-ink-faint text-xs text-center py-2">Empty</p>
               {:else}
                 {#each cg.contents as entry (entry.item.id)}
@@ -572,6 +645,18 @@
       {/each}
     {/if}
   </div>
+
+  <!-- Home Base (stashed items) -->
+  {#if stashedItems.length > 0}
+    <div class="mt-4 pt-4 border-t border-parchment-200">
+      <h3 class="text-xs text-ink-faint uppercase tracking-wide mb-2">Home Base ({stashedItems.length} items)</h3>
+      <div class="space-y-2 opacity-75">
+        {#each stashedItems as entry (entry.item.id)}
+          {@render itemRow(entry)}
+        {/each}
+      </div>
+    </div>
+  {/if}
 </div>
 
 {#snippet itemRow(entry)}
@@ -730,11 +815,24 @@
         class="btn-ghost text-xs px-1.5 py-0.5"
         on:click={() => adjustQty(entry, 1)}
       >+</button>
+      {#if !entry.stashed}
+        <button
+          class="btn-ghost text-xs px-1.5 py-0.5"
+          on:click={() => stashItem(entry)}
+          title="Send to home base"
+        >Home</button>
+      {:else}
+        <button
+          class="btn text-xs px-1.5 py-0.5"
+          on:click={() => retrieveItem(entry)}
+          title="Retrieve from home base"
+        >Retrieve</button>
+      {/if}
       <button
         class="btn-ghost text-xs px-1.5 py-0.5"
         on:click={() => returnToStash(entry)}
         title="Return to party stash"
-      >Stash</button>
+      >Party</button>
       <button
         class="btn-danger text-xs px-1.5 py-0.5 ml-1"
         on:click={() => removeItem(entry)}

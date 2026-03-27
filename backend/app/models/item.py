@@ -15,6 +15,7 @@ character_items = Table(
     Column("identified", Boolean, default=False, server_default="0"),
     Column("container_item_id", Integer, ForeignKey("items.id"), nullable=True),
     Column("dropped", Boolean, default=False, server_default="0"),
+    Column("stashed", Boolean, default=False, server_default="0"),
     Column("state", JSON, nullable=True),  # Per-character item state (e.g. fill, contents)
 )
 

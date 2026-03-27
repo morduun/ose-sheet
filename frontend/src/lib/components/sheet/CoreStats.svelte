@@ -246,8 +246,8 @@
   function getXPThresholds() {
     const xpTable = getXPTable();
     if (!xpTable || !Array.isArray(xpTable)) return { min: 0, max: null };
-    const min = xpTable[character.level - 1] ?? 0;
-    const max = xpTable[character.level] ?? null;
+    const min = character.level < 1 ? Math.min(character.xp ?? 0, 0) : (xpTable[character.level - 1] ?? 0);
+    const max = xpTable[character.level] ?? (character.level < 1 ? (xpTable[0] ?? 0) : null);
     return { min, max };
   }
 

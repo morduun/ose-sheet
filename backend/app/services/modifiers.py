@@ -313,6 +313,8 @@ def compute_encumbrance(character, db) -> dict:
 
         item_ids = {}
         for row in rows:
+            if row.stashed:
+                continue  # Skip stashed items (home base)
             if row.dropped:
                 continue  # Skip dropped containers
             if row.container_item_id in dropped_ids:
@@ -330,6 +332,11 @@ def compute_encumbrance(character, db) -> dict:
         + (character.gold or 0)
         + (character.platinum or 0)
     )
+
+    # Exclude coin weight if coins are in a dropped container
+    coin_container_id = getattr(character, 'coin_container_id', None)
+    if coin_container_id and coin_container_id in dropped_ids:
+        coin_weight = 0
 
     total = item_weight + coin_weight
 

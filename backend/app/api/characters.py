@@ -202,24 +202,36 @@ async def create_character(
         owner_id = master.player_id
 
     character_data = character.model_dump(exclude={"campaign_id", "player_id", "master_id"})
-    level_index = character_data.get("level", 1) - 1
+    level = character_data.get("level", 1)
+    level_index = max(0, level - 1)
     class_data = char_class.class_data if char_class else {}
+
+    # Level 0 "Normal Man" stats (OSE: THAC0 20, saves D14/W15/P16/B17/S18)
+    is_level_zero = level < 1
 
     # Auto-populate saving throws from class template if not provided
     if not character_data.get("saving_throws"):
-        saves = class_data.get("saving_throws", {})
-        if saves:
+        if is_level_zero:
             character_data["saving_throws"] = {
-                key: values[level_index]
-                for key, values in saves.items()
-                if level_index < len(values)
+                "death": 14, "wands": 15, "paralyze": 16, "breath": 17, "spells": 18,
             }
+        else:
+            saves = class_data.get("saving_throws", {})
+            if saves:
+                character_data["saving_throws"] = {
+                    key: values[level_index]
+                    for key, values in saves.items()
+                    if level_index < len(values)
+                }
 
     # Auto-populate combat stats (THAC0) from class template if not provided
     if not character_data.get("combat_stats"):
-        thac0_table = class_data.get("thac0", [])
-        if thac0_table and level_index < len(thac0_table):
-            character_data["combat_stats"] = {"thac0": thac0_table[level_index]}
+        if is_level_zero:
+            character_data["combat_stats"] = {"thac0": 20}
+        else:
+            thac0_table = class_data.get("thac0", [])
+            if thac0_table and level_index < len(thac0_table):
+                character_data["combat_stats"] = {"thac0": thac0_table[level_index]}
 
     # Auto-populate AC with DEX modifier if still at default (9 = unarmored)
     if character_data.get("ac", 9) == 9:
@@ -933,7 +945,7 @@ async def get_character_spells(
 
     # Build slot summary from class template
     class_data = character.character_class.class_data
-    level_index = character.level - 1
+    level_index = max(0, character.level - 1)
 
     slots: dict[str, SpellSlotInfo] = {}
     spell_slots_table = class_data.get("spells", {})
@@ -1022,7 +1034,7 @@ async def memorize_spell(
 
     # Check slot availability
     class_data = character.character_class.class_data
-    level_index = character.level - 1
+    level_index = max(0, character.level - 1)
     spell_slots_table = class_data.get("spells", {})
     ordinal = level_to_ordinal(spell.level)
 
@@ -1227,6 +1239,7 @@ async def get_character_items(
             character_items.c.identified,
             character_items.c.container_item_id,
             character_items.c.dropped,
+            character_items.c.stashed,
             character_items.c.state,
         )
         .where(character_items.c.character_id == character_id)
@@ -1242,6 +1255,7 @@ async def get_character_items(
             "identified": row.identified,
             "container_item_id": row.container_item_id,
             "dropped": row.dropped,
+            "stashed": row.stashed,
             "state": row.state,
         }
         for row in rows
@@ -1259,6 +1273,7 @@ async def get_character_items(
                 identified=item_info[i.id]["identified"],
                 container_item_id=item_info[i.id]["container_item_id"],
                 dropped=item_info[i.id]["dropped"],
+                stashed=item_info[i.id]["stashed"],
                 state=item_info[i.id]["state"],
             )
             for i in items
@@ -1272,6 +1287,7 @@ async def get_character_items(
             identified=item_info[i.id]["identified"],
             container_item_id=item_info[i.id]["container_item_id"],
             dropped=item_info[i.id]["dropped"],
+            stashed=item_info[i.id]["stashed"],
             state=item_info[i.id]["state"],
         )
         for i in items
@@ -1307,6 +1323,7 @@ async def update_item_quantity(
             character_items.c.identified,
             character_items.c.container_item_id,
             character_items.c.dropped,
+            character_items.c.stashed,
             character_items.c.state,
         ).where(
             (character_items.c.character_id == character_id) &
@@ -1338,6 +1355,7 @@ async def update_item_quantity(
         identified=existing.identified,
         container_item_id=existing.container_item_id,
         dropped=existing.dropped,
+        stashed=existing.stashed if hasattr(existing, 'stashed') else False,
         state=existing.state,
     )
 
@@ -1352,6 +1370,8 @@ def _build_inventory(character_id: int, db: Session) -> list[CharacterInventoryE
             character_items.c.identified,
             character_items.c.container_item_id,
             character_items.c.dropped,
+            character_items.c.stashed,
+            character_items.c.state,
         )
         .where(character_items.c.character_id == character_id)
     ).fetchall()
@@ -1364,6 +1384,8 @@ def _build_inventory(character_id: int, db: Session) -> list[CharacterInventoryE
             "identified": row.identified,
             "container_item_id": row.container_item_id,
             "dropped": row.dropped,
+            "stashed": row.stashed,
+            "state": row.state,
         }
         for row in rows
     }
@@ -1376,6 +1398,8 @@ def _build_inventory(character_id: int, db: Session) -> list[CharacterInventoryE
             identified=item_info[i.id]["identified"],
             container_item_id=item_info[i.id]["container_item_id"],
             dropped=item_info[i.id]["dropped"],
+            stashed=item_info[i.id]["stashed"],
+            state=item_info[i.id]["state"],
         )
         for i in items
     ]
@@ -1612,6 +1636,52 @@ async def unequip_item(
     return _build_inventory(character_id, db)
 
 
+class StashItemRequest(BaseModel):
+    """Stash or unstash an item (home base storage)."""
+    stashed: bool
+
+
+@router.post("/{character_id}/items/{item_id}/stash", response_model=list[CharacterInventoryEntry])
+async def stash_item(
+    character_id: int,
+    item_id: int,
+    body: StashItemRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Move an item to/from home base stash. Stashed items don't count toward encumbrance."""
+    character = db.query(Character).filter(Character.id == character_id).first()
+    if not character:
+        raise HTTPException(status_code=404, detail=f"Character with id {character_id} not found")
+    if not can_edit_character(current_user, character):
+        raise HTTPException(status_code=403, detail="Only the character owner or campaign GM can stash items")
+
+    row = db.execute(
+        select(character_items.c.item_id, character_items.c.slot)
+        .where(
+            (character_items.c.character_id == character_id)
+            & (character_items.c.item_id == item_id)
+        )
+    ).first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Item not in character's inventory")
+
+    # Must unequip before stashing
+    if body.stashed and row.slot:
+        raise HTTPException(status_code=400, detail="Unequip the item before stashing it")
+
+    db.execute(
+        sa_update(character_items)
+        .where(
+            (character_items.c.character_id == character_id)
+            & (character_items.c.item_id == item_id)
+        )
+        .values(stashed=body.stashed, container_item_id=None if body.stashed else None)
+    )
+    db.commit()
+    return _build_inventory(character_id, db)
+
+
 class ItemStateUpdate(BaseModel):
     """Update per-character item state (fill level, contents, etc.)."""
     state: dict
@@ -1639,6 +1709,7 @@ async def update_item_state(
             character_items.c.identified,
             character_items.c.container_item_id,
             character_items.c.dropped,
+            character_items.c.stashed,
             character_items.c.state,
         ).where(
             (character_items.c.character_id == character_id) &

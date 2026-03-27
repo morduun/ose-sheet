@@ -62,6 +62,7 @@ class CharacterBase(BaseModel):
     electrum: int = Field(default=0, ge=0)
     gold: int = Field(default=0, ge=0)
     platinum: int = Field(default=0, ge=0)
+    coin_container_id: int | None = None  # Which container holds the coins
 
     # State
     status: str = "active"
@@ -107,6 +108,7 @@ class CharacterUpdate(BaseModel):
     electrum: int | None = Field(default=None, ge=0)
     gold: int | None = Field(default=None, ge=0)
     platinum: int | None = Field(default=None, ge=0)
+    coin_container_id: int | None = None
 
     status: str | None = None
     is_alive: bool | None = None

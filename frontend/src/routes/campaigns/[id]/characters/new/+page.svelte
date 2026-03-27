@@ -305,7 +305,7 @@
         <!-- Level -->
         <div>
           <label class="block text-sm text-ink mb-1" for="char-level">Level</label>
-          <input id="char-level" class="input w-full" type="number" min="1" max="14" bind:value={form.level} />
+          <input id="char-level" class="input w-full" type="number" min="0" max="14" bind:value={form.level} />
         </div>
 
         <!-- Owner (GM only, not for retainers) -->
