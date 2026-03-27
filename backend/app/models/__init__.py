@@ -13,6 +13,7 @@ from app.models.mercenary_type import MercenaryType
 from app.models.specialist_type import SpecialistType
 from app.models.treasure_type import TreasureType
 from app.models.dungeon import Dungeon, DungeonRoom
+from app.models.animal import CharacterAnimal
 from app.models.vehicle import Vehicle, VehicleType, vehicle_cargo
 
 __all__ = [
@@ -36,6 +37,7 @@ __all__ = [
     "TreasureType",
     "Dungeon",
     "DungeonRoom",
+    "CharacterAnimal",
     "Vehicle",
     "VehicleType",
     "vehicle_cargo",
