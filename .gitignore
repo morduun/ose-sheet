@@ -144,6 +144,9 @@ ENV/
 env.bak/
 venv.bak/
 
+# local scripts
+scripts/
+
 # Spyder project settings
 .spyderproject
 .spyproject

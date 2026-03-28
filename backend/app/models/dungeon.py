@@ -18,6 +18,8 @@ class Dungeon(Base):
     )
     name = Column(String, nullable=False)
     description = Column(String, nullable=True)
+    # sections: [{name, encounter_chance, check_interval, wandering_monsters: [{monster_id, name, quantity_dice, weight}]}]
+    sections = Column(JSON, nullable=True, default=list)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     # Relationships
@@ -40,6 +42,7 @@ class DungeonRoom(Base):
     )
     room_number = Column(Integer, nullable=False)
     name = Column(String, nullable=False)
+    section = Column(String, nullable=True)  # Groups room under a dungeon section
     description = Column(String, nullable=True)
     notes = Column(String, nullable=True)  # GM play notes
     state = Column(String, default="unvisited", server_default="unvisited")  # unvisited, visited, cleared

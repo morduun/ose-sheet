@@ -49,6 +49,7 @@ class RoomCurrencyStash(BaseModel):
 class DungeonRoomCreate(BaseModel):
     room_number: int
     name: str
+    section: str | None = None
     description: str | None = None
     notes: str | None = None
     state: str = "unvisited"
@@ -63,6 +64,7 @@ class DungeonRoomCreate(BaseModel):
 class DungeonRoomUpdate(BaseModel):
     room_number: int | None = None
     name: str | None = None
+    section: str | None = None
     description: str | None = None
     notes: str | None = None
     state: str | None = None
@@ -79,6 +81,7 @@ class DungeonRoomResponse(BaseModel):
     dungeon_id: int
     room_number: int
     name: str
+    section: str | None = None
     description: str | None = None
     notes: str | None = None
     state: str = "unvisited"
@@ -94,14 +97,23 @@ class DungeonRoomResponse(BaseModel):
 
 # --- Dungeon schemas ---
 
+class DungeonSection(BaseModel):
+    name: str
+    encounter_chance: int = 1  # X-in-6
+    check_interval: int = 2   # every N turns
+    wandering_monsters: list[dict] = []  # [{monster_id, name, quantity_dice, weight}]
+
+
 class DungeonCreate(BaseModel):
     name: str
     description: str | None = None
+    sections: list[DungeonSection] = []
 
 
 class DungeonUpdate(BaseModel):
     name: str | None = None
     description: str | None = None
+    sections: list[DungeonSection] | None = None
 
 
 class DungeonSummary(BaseModel):
@@ -110,6 +122,7 @@ class DungeonSummary(BaseModel):
     campaign_id: int
     name: str
     description: str | None = None
+    sections: list[dict] = []
     room_count: int = 0
     cleared_count: int = 0
 
@@ -122,6 +135,7 @@ class DungeonResponse(BaseModel):
     campaign_id: int
     name: str
     description: str | None = None
+    sections: list[dict] = []
     rooms: list[DungeonRoomResponse] = []
 
     model_config = {"from_attributes": True}

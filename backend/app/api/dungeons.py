@@ -60,6 +60,7 @@ async def list_dungeons(
             campaign_id=d.campaign_id,
             name=d.name,
             description=d.description,
+            sections=d.sections or [],
             room_count=len(rooms),
             cleared_count=sum(1 for r in rooms if r.state == "cleared"),
         ))
@@ -100,6 +101,7 @@ async def create_dungeon(
         campaign_id=campaign_id,
         name=req.name,
         description=req.description,
+        sections=[s.model_dump() for s in req.sections] if req.sections else [],
     )
     db.add(dungeon)
     db.commit()
@@ -129,6 +131,10 @@ async def update_dungeon(
         dungeon.name = req.name
     if req.description is not None:
         dungeon.description = req.description
+    if req.sections is not None:
+        from sqlalchemy.orm.attributes import flag_modified
+        dungeon.sections = [s.model_dump() for s in req.sections]
+        flag_modified(dungeon, "sections")
 
     db.commit()
     db.refresh(dungeon)
@@ -180,6 +186,7 @@ async def create_room(
         dungeon_id=dungeon_id,
         room_number=req.room_number,
         name=req.name,
+        section=req.section,
         description=req.description,
         notes=req.notes,
         state=req.state,
@@ -219,6 +226,8 @@ async def update_room(
         room.room_number = req.room_number
     if req.name is not None:
         room.name = req.name
+    if req.section is not None:
+        room.section = req.section
     if req.description is not None:
         room.description = req.description
     if req.notes is not None:

@@ -140,13 +140,7 @@
       <div class="mt-2 space-y-1" on:click={dismissAlerts}>
         {#each alerts as alert}
           <div class="text-xs px-2 py-1 rounded border flex items-center justify-between gap-2 {alertColors[alert.type] ?? 'bg-parchment-100 border-ink-faint/30 text-ink'}">
-            <span>{alert.text}</span>
-            {#if alert.type === 'wandering' && rollDice}
-              <button
-                class="btn text-[10px] px-2 py-0 shrink-0"
-                on:click|stopPropagation={rollWanderingMonster}
-              >Roll 1d6</button>
-            {/if}
+            <span>{alert.text}{#if alert.type === 'wandering'} — use Roll Wandering above{/if}</span>
           </div>
         {/each}
       </div>

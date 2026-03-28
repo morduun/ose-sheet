@@ -25,6 +25,13 @@
 
   // Selected room
   let selectedRoomId = null;
+  let currentSection = null;  // active section for wandering monster rolls
+
+  // Dungeon edit modal
+  let showDungeonEditor = false;
+  let dungeonEditName = '';
+  let dungeonEditDesc = '';
+  let dungeonEditSections = [];
 
   // Room editor modal
   let showRoomEditor = false;
@@ -54,7 +61,35 @@
 
   $: isGM = campaign && userId && campaign.gm_id === userId;
   $: rooms = dungeon?.rooms ?? [];
+  $: sections = dungeon?.sections ?? [];
+  $: sectionNames = sections.map(s => s.name);
   $: selectedRoom = rooms.find(r => r.id === selectedRoomId) || null;
+
+  // Auto-set currentSection when selecting a room
+  $: if (selectedRoom?.section && selectedRoom.section !== currentSection) {
+    currentSection = selectedRoom.section;
+  }
+
+  // Group rooms by section
+  $: roomsBySection = (() => {
+    const groups = [];
+    const sectionOrder = [...sectionNames, null]; // null = unsectioned
+    for (const sName of sectionOrder) {
+      const sectionRooms = rooms.filter(r => (r.section || null) === sName);
+      if (sectionRooms.length > 0 || sName !== null) {
+        groups.push({ name: sName, label: sName || 'Unsectioned', rooms: sectionRooms });
+      }
+    }
+    // Add any rooms with sections not in the section list
+    const knownSections = new Set([...sectionNames, null]);
+    const orphanSections = [...new Set(rooms.map(r => r.section).filter(s => s && !knownSections.has(s)))];
+    for (const s of orphanSections) {
+      groups.push({ name: s, label: s, rooms: rooms.filter(r => r.section === s) });
+    }
+    return groups.filter(g => g.rooms.length > 0);
+  })();
+
+  $: currentSectionData = sections.find(s => s.name === currentSection) || null;
 
   onMount(async () => {
     userId = getUserId();
@@ -85,6 +120,7 @@
       description: '',
       notes: '',
       treasure_type_key: '',
+      section: currentSection || '',
       monsters: [],
       items: [],
       traps: [],
@@ -109,6 +145,7 @@
       treasure_type_key: room.treasure_type_key || '',
       monsters: [...(room.monsters || [])],
       items: [...(room.items || [])],
+      section: room.section || '',
       traps: [...(room.traps || [])],
       exits: [...(room.exits || [])],
       currency: (room.currency || []).map(c => ({ ...c })),
@@ -233,6 +270,162 @@
     }
   }
 
+  // --- Dungeon editing ---
+  function openDungeonEditor() {
+    dungeonEditName = dungeon.name;
+    dungeonEditDesc = dungeon.description || '';
+    dungeonEditSections = (dungeon.sections || []).map(s => ({
+      ...s,
+      wandering_monsters: [...(s.wandering_monsters || [])],
+    }));
+    showDungeonEditor = true;
+  }
+
+  function addSection() {
+    dungeonEditSections = [...dungeonEditSections, {
+      name: '',
+      encounter_chance: 1,
+      check_interval: 2,
+      wandering_monsters: [],
+    }];
+  }
+
+  function removeSection(idx) {
+    dungeonEditSections = dungeonEditSections.filter((_, i) => i !== idx);
+  }
+
+  function addWanderingMonster(sectionIdx) {
+    dungeonEditSections[sectionIdx].wandering_monsters = [
+      ...dungeonEditSections[sectionIdx].wandering_monsters,
+      { monster_id: null, name: '', quantity_dice: '1d4', weight: 1 },
+    ];
+    dungeonEditSections = dungeonEditSections;
+  }
+
+  function removeWanderingMonster(sectionIdx, monsterIdx) {
+    dungeonEditSections[sectionIdx].wandering_monsters =
+      dungeonEditSections[sectionIdx].wandering_monsters.filter((_, i) => i !== monsterIdx);
+    dungeonEditSections = dungeonEditSections;
+  }
+
+  async function saveDungeonEdit() {
+    try {
+      // Fill monster names from the monster list
+      for (const section of dungeonEditSections) {
+        for (const wm of section.wandering_monsters) {
+          if (wm.monster_id) {
+            const mon = monsters.find(m => m.id === parseInt(wm.monster_id));
+            if (mon) wm.name = mon.name;
+          }
+        }
+      }
+      await api.patch(`/campaigns/${campaignId}/dungeons/${dungeonId}`, {
+        name: dungeonEditName.trim(),
+        description: dungeonEditDesc.trim() || null,
+        sections: dungeonEditSections,
+      });
+      await reload();
+      showDungeonEditor = false;
+    } catch (e) {
+      alert(e.message);
+    }
+  }
+
+  // --- Wandering monster roll ---
+  async function rollWanderingMonster() {
+    if (!rollDice || !currentSectionData) return;
+    const chance = currentSectionData.encounter_chance || 1;
+    const total = await rollDice('1d6', (roll) => {
+      const encounter = roll <= chance;
+      return {
+        display: roll,
+        text: encounter
+          ? `Wandering Monster! (${roll} vs ${chance}-in-6, ${currentSection})`
+          : `No encounter (${roll} vs ${chance}-in-6, ${currentSection})`,
+      };
+    });
+    if (total != null && total <= chance) {
+      // Roll on the table using weighted random
+      const table = currentSectionData.wandering_monsters || [];
+      if (table.length > 0) {
+        const totalWeight = table.reduce((s, m) => s + (m.weight || 1), 0);
+        let roll = Math.random() * totalWeight;
+        let picked = table[0];
+        for (const entry of table) {
+          roll -= (entry.weight || 1);
+          if (roll <= 0) { picked = entry; break; }
+        }
+        wanderingMonsterResult = picked;
+        rolledQuantity = null;
+        reactionResult = null;
+      }
+    }
+  }
+
+  let wanderingMonsterResult = null;
+  let rolledQuantity = null;
+  let reactionResult = null;
+  let showEncounterTable = false;
+
+  const REACTION_TABLE = [
+    { max: 2, result: 'Hostile, attacks', color: 'text-red-900' },
+    { max: 5, result: 'Unfriendly, may attack', color: 'text-orange-800' },
+    { max: 8, result: 'Neutral, uncertain', color: 'text-ink' },
+    { max: 11, result: 'Indifferent, uninterested', color: 'text-blue-800' },
+    { max: 99, result: 'Friendly, helpful', color: 'text-green-800' },
+  ];
+
+  function getReaction(roll) {
+    return REACTION_TABLE.find(r => roll <= r.max) || REACTION_TABLE[2];
+  }
+
+  async function rollQuantity() {
+    if (!rollDice || !wanderingMonsterResult) return;
+    const dice = wanderingMonsterResult.quantity_dice || '1';
+    const total = await rollDice(dice, (roll) => {
+      return { display: roll, text: `${wanderingMonsterResult.name}: ${roll} appearing` };
+    });
+    if (total != null) {
+      rolledQuantity = total;
+    }
+  }
+
+  async function rollReaction() {
+    if (!rollDice) return;
+    const total = await rollDice('2d6', (roll) => {
+      const reaction = getReaction(roll);
+      return { display: roll, text: `Reaction: ${reaction.result}` };
+    });
+    if (total != null) {
+      reactionResult = getReaction(total);
+      reactionResult.roll = total;
+    }
+  }
+
+  async function sendWanderingToPanel() {
+    if (!wanderingMonsterResult) return;
+    const entry = wanderingMonsterResult;
+
+    // Use already-rolled quantity, or roll now
+    let qty = rolledQuantity;
+    if (!qty && rollDice) {
+      const dice = entry.quantity_dice || '1';
+      qty = await rollDice(dice, (roll) => {
+        return { display: roll, text: `${entry.name}: ${roll} appearing` };
+      });
+    }
+    if (!qty || qty <= 0) qty = 1;
+
+    localStorage.setItem(`referee_load_monsters_${campaignId}`, JSON.stringify([{
+      monsterId: entry.monster_id,
+      quantity: qty,
+    }]));
+    wanderingMonsterResult = null;
+    reactionResult = null;
+    rolledQuantity = null;
+    goto(`/campaigns/${campaignId}/referee`);
+  }
+
   // Room editor helpers
   function addMonster() { roomForm.monsters = [...roomForm.monsters, { monster_id: null, quantity: 1 }]; }
   function removeMonster(i) { roomForm.monsters = roomForm.monsters.filter((_, idx) => idx !== i); }
@@ -279,13 +472,91 @@
         {/if}
       </div>
       {#if isGM}
-        <button class="btn text-xs" on:click={openAddRoom}>+ Add Room</button>
+        <div class="flex items-center gap-2">
+          {#if sectionNames.length > 0}
+            <select class="input text-xs py-0.5" bind:value={currentSection}>
+              {#each sectionNames as name}
+                <option value={name}>{name}</option>
+              {/each}
+            </select>
+            {#if currentSectionData}
+              <button class="btn text-xs" on:click={rollWanderingMonster} disabled={!rollDice}>Roll Wandering</button>
+              <button class="btn-ghost text-xs" on:click={() => showEncounterTable = !showEncounterTable}>
+                {showEncounterTable ? 'Hide Table' : 'View Table'}
+              </button>
+            {/if}
+          {/if}
+          <button class="btn-ghost text-xs" on:click={openDungeonEditor}>Edit Dungeon</button>
+          <button class="btn text-xs" on:click={openAddRoom}>+ Add Room</button>
+        </div>
       {/if}
     </div>
 
     <!-- Dungeon Time Widget -->
     {#if isGM}
       <DungeonTimeWidget {campaignId} {rollDice} />
+    {/if}
+
+    <!-- Encounter Table -->
+    {#if showEncounterTable && currentSectionData}
+      <div class="panel mb-4">
+        <div class="flex items-center justify-between mb-2">
+          <h3 class="text-xs text-ink-faint uppercase tracking-wide">
+            {currentSection} — Wandering Monsters ({currentSectionData.encounter_chance}-in-6, every {currentSectionData.check_interval} turns)
+          </h3>
+          <button class="btn-ghost text-xs" on:click={() => showEncounterTable = false}>Hide</button>
+        </div>
+        {#if (currentSectionData.wandering_monsters || []).length > 0}
+          {@const totalWeight = currentSectionData.wandering_monsters.reduce((s, m) => s + (m.weight || 1), 0)}
+          <table class="w-full text-sm">
+            <thead>
+              <tr class="border-b border-ink-faint/30 text-xs text-ink-faint">
+                <th class="text-left py-1">Monster</th>
+                <th class="text-center py-1">Qty</th>
+                <th class="text-center py-1">Chance</th>
+              </tr>
+            </thead>
+            <tbody>
+              {#each currentSectionData.wandering_monsters as wm}
+                <tr class="border-b border-parchment-200 last:border-0">
+                  <td class="py-1 text-ink">{wm.name || `Monster #${wm.monster_id}`}</td>
+                  <td class="py-1 text-center text-ink-faint">{wm.quantity_dice}</td>
+                  <td class="py-1 text-center text-ink-faint">{Math.round(((wm.weight || 1) / totalWeight) * 100)}%</td>
+                </tr>
+              {/each}
+            </tbody>
+          </table>
+        {:else}
+          <p class="text-xs text-ink-faint">No wandering monsters defined for this section.</p>
+        {/if}
+      </div>
+    {/if}
+
+    <!-- Wandering Monster Result -->
+    {#if wanderingMonsterResult}
+      <div class="panel bg-red-50 border-red-400 mb-4">
+        <div class="flex items-center justify-between mb-1">
+          <div>
+            <span class="text-sm font-medium text-red-900">Wandering Monster: {wanderingMonsterResult.name}</span>
+            {#if rolledQuantity}
+              <span class="text-sm font-medium text-red-900 ml-2">x{rolledQuantity}</span>
+            {:else}
+              <span class="text-xs text-red-700 ml-2">({wanderingMonsterResult.quantity_dice})</span>
+            {/if}
+          </div>
+          <button class="btn-ghost text-xs" on:click={() => { wanderingMonsterResult = null; reactionResult = null; rolledQuantity = null; }}>Dismiss</button>
+        </div>
+        {#if reactionResult}
+          <div class="text-sm mb-2">
+            <span class="font-medium {reactionResult.color}">Reaction ({reactionResult.roll}): {reactionResult.result}</span>
+          </div>
+        {/if}
+        <div class="flex gap-2">
+          <button class="btn-ghost text-xs" on:click={rollQuantity} disabled={!rollDice}>Roll Qty ({wanderingMonsterResult.quantity_dice})</button>
+          <button class="btn-ghost text-xs" on:click={rollReaction} disabled={!rollDice}>Roll Reaction (2d6)</button>
+          <button class="btn text-xs" on:click={sendWanderingToPanel}>Send to Referee Panel</button>
+        </div>
+      </div>
     {/if}
 
     {#if rooms.length === 0}
@@ -297,18 +568,25 @@
       <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
         <!-- Room list sidebar -->
         <div class="lg:col-span-3 space-y-1">
-          {#each rooms as room (room.id)}
-            <button
-              class="w-full text-left px-3 py-2 rounded text-sm transition-colors
-                {selectedRoomId === room.id ? 'bg-parchment-100 border border-ink-faint/30' : 'hover:bg-parchment-100/50'}"
-              on:click={() => selectedRoomId = room.id}
-            >
-              <div class="flex items-center gap-2">
-                <span class="font-serif text-ink font-medium w-6 text-right shrink-0">{room.room_number}.</span>
-                <span class="text-ink truncate flex-1">{room.name}</span>
-                <span class="text-[10px] px-1.5 py-0.5 rounded {STATE_COLORS[room.state]}">{STATE_LABELS[room.state]}</span>
+          {#each roomsBySection as group}
+            {#if sectionNames.length > 0}
+              <div class="text-[10px] text-ink-faint uppercase tracking-wide px-3 pt-2 pb-1 font-medium {currentSection === group.name ? 'text-ink' : ''}">
+                {group.label}
               </div>
-            </button>
+            {/if}
+            {#each group.rooms as room (room.id)}
+              <button
+                class="w-full text-left px-3 py-2 rounded text-sm transition-colors
+                  {selectedRoomId === room.id ? 'bg-parchment-100 border border-ink-faint/30' : 'hover:bg-parchment-100/50'}"
+                on:click={() => selectedRoomId = room.id}
+              >
+                <div class="flex items-center gap-2">
+                  <span class="font-serif text-ink font-medium w-6 text-right shrink-0">{room.room_number}.</span>
+                  <span class="text-ink truncate flex-1">{room.name}</span>
+                  <span class="text-[10px] px-1.5 py-0.5 rounded {STATE_COLORS[room.state]}">{STATE_LABELS[room.state]}</span>
+                </div>
+              </button>
+            {/each}
           {/each}
         </div>
 
@@ -510,14 +788,23 @@
 <Modal bind:open={showRoomEditor} title={editingRoom ? `Edit Room ${editingRoom.room_number}` : 'New Room'} maxWidth="max-w-3xl">
   <div class="space-y-4 max-h-[70vh] overflow-y-auto">
     <!-- Basic info -->
-    <div class="grid grid-cols-4 gap-3">
+    <div class="grid grid-cols-6 gap-3">
       <div>
-        <label class="block text-xs text-ink-faint mb-1" for="rm-num">Number</label>
+        <label class="block text-xs text-ink-faint mb-1" for="rm-num">#</label>
         <input id="rm-num" class="input w-full" type="number" min="1" bind:value={roomForm.room_number} />
       </div>
       <div class="col-span-3">
         <label class="block text-xs text-ink-faint mb-1" for="rm-name">Name</label>
         <input id="rm-name" class="input w-full" type="text" bind:value={roomForm.name} placeholder="Guard Room" />
+      </div>
+      <div class="col-span-2">
+        <label class="block text-xs text-ink-faint mb-1" for="rm-section">Section</label>
+        <select id="rm-section" class="input w-full" bind:value={roomForm.section}>
+          <option value="">None</option>
+          {#each sectionNames as name}
+            <option value={name}>{name}</option>
+          {/each}
+        </select>
       </div>
     </div>
 
@@ -668,5 +955,86 @@
       {editingRoom ? 'Save Changes' : 'Create Room'}
     </button>
     <button class="btn-ghost" on:click={() => showRoomEditor = false}>Cancel</button>
+  </div>
+</Modal>
+
+<!-- Dungeon Edit Modal -->
+<Modal bind:open={showDungeonEditor} title="Edit Dungeon" maxWidth="max-w-3xl">
+  <div class="space-y-4 max-h-[70vh] overflow-y-auto">
+    <div class="grid grid-cols-2 gap-3">
+      <div>
+        <label class="block text-xs text-ink-faint mb-1" for="de-name">Dungeon Name</label>
+        <input id="de-name" class="input w-full" type="text" bind:value={dungeonEditName} />
+      </div>
+      <div>
+        <label class="block text-xs text-ink-faint mb-1" for="de-desc">Description</label>
+        <input id="de-desc" class="input w-full" type="text" bind:value={dungeonEditDesc} />
+      </div>
+    </div>
+
+    <!-- Sections -->
+    <div>
+      <div class="flex items-center justify-between mb-2">
+        <span class="text-sm font-medium text-ink">Sections & Wandering Monsters</span>
+        <button type="button" class="btn-ghost text-xs" on:click={addSection}>+ Add Section</button>
+      </div>
+
+      {#each dungeonEditSections as section, si}
+        <div class="border border-parchment-200 rounded p-3 mb-3 space-y-2">
+          <div class="flex gap-2 items-end">
+            <div class="flex-1">
+              <label class="text-[10px] text-ink-faint uppercase">Section Name</label>
+              <input class="input w-full text-sm" type="text" bind:value={section.name} placeholder="Level 1: Gatehouse" />
+            </div>
+            <div class="w-20">
+              <label class="text-[10px] text-ink-faint uppercase">Chance</label>
+              <input class="input w-full text-sm" type="number" min="1" max="6" bind:value={section.encounter_chance} title="X-in-6" />
+            </div>
+            <div class="w-20">
+              <label class="text-[10px] text-ink-faint uppercase">Every</label>
+              <input class="input w-full text-sm" type="number" min="1" bind:value={section.check_interval} title="Check every N turns" />
+            </div>
+            <button type="button" class="btn-danger text-xs px-1.5 py-0.5" on:click={() => removeSection(si)}>X</button>
+          </div>
+
+          <!-- Wandering monsters for this section -->
+          <div>
+            <div class="flex items-center justify-between mb-1">
+              <span class="text-[10px] text-ink-faint uppercase">Wandering Monsters</span>
+              <button type="button" class="btn-ghost text-[10px]" on:click={() => addWanderingMonster(si)}>+ Add</button>
+            </div>
+            {#each section.wandering_monsters as wm, wi}
+              <div class="flex gap-2 items-end mb-1">
+                <select class="input flex-1 text-sm" bind:value={wm.monster_id}>
+                  <option value={null}>Select monster...</option>
+                  {#each monsters as mon}
+                    <option value={mon.id}>{mon.name}</option>
+                  {/each}
+                </select>
+                <div class="w-16">
+                  <input class="input w-full text-sm" type="text" bind:value={wm.quantity_dice} placeholder="2d4" title="Quantity dice" />
+                </div>
+                <div class="w-14">
+                  <input class="input w-full text-sm" type="number" min="1" bind:value={wm.weight} placeholder="Wt" title="Weight (higher = more likely)" />
+                </div>
+                <button type="button" class="btn-danger text-[10px] px-1.5 py-0.5" on:click={() => removeWanderingMonster(si, wi)}>X</button>
+              </div>
+            {/each}
+            {#if section.wandering_monsters.length === 0}
+              <p class="text-[10px] text-ink-faint">No wandering monsters.</p>
+            {/if}
+          </div>
+        </div>
+      {/each}
+
+      {#if dungeonEditSections.length === 0}
+        <p class="text-xs text-ink-faint">No sections. Add sections to organize rooms and define wandering monster tables.</p>
+      {/if}
+    </div>
+  </div>
+
+  <div class="flex gap-3 mt-4 pt-3 border-t border-parchment-200">
+    <button class="btn" on:click={saveDungeonEdit}>Save Dungeon</button>
+    <button class="btn-ghost" on:click={() => showDungeonEditor = false}>Cancel</button>
   </div>
 </Modal>
