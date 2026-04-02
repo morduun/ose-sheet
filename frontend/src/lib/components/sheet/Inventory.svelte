@@ -431,12 +431,34 @@
     return entry.state?.appraised_value ?? null;
   }
 
+  function getTreasureMaterial(entry) {
+    return entry.state?.material ?? null;
+  }
+
+  function getTreasureDescription(entry) {
+    return entry.state?.description ?? null;
+  }
+
   async function saveAppraisedValue(entry, value) {
     const numVal = value === '' ? null : parseFloat(value);
     try {
       const updated = await api.patch(
         `/characters/${character.id}/items/${entry.item.id}/state`,
         { state: { appraised_value: numVal } }
+      );
+      entry.state = updated.state;
+      items = items;
+    } catch (e) {
+      alert(e.message);
+    }
+  }
+
+  async function saveTreasureField(entry, field, value) {
+    const trimmed = value.trim() || null;
+    try {
+      const updated = await api.patch(
+        `/characters/${character.id}/items/${entry.item.id}/state`,
+        { state: { [field]: trimmed } }
       );
       entry.state = updated.state;
       items = items;
@@ -716,8 +738,14 @@
         {#if entry.item.weight}
           <span class="ml-1">{entry.item.weight} cn</span>
         {/if}
+        {#if getTreasureMaterial(entry)}
+          <span class="ml-1 text-amber-800">({getTreasureMaterial(entry)})</span>
+        {/if}
         {#if getAppraisedValue(entry) != null}
           <span class="ml-1 text-amber-700">{getAppraisedValue(entry).toLocaleString()} gp</span>
+        {/if}
+        {#if getTreasureDescription(entry)}
+          <span class="ml-1 italic">&mdash; {getTreasureDescription(entry)}</span>
         {/if}
         {#if normalizeQualities(entry.item.item_metadata?.qualities).length}
           <span class="ml-1">
@@ -738,18 +766,42 @@
         </div>
       {/if}
       {#if entry.item.item_type === 'treasure' && isGM}
-        <div class="flex items-center gap-1 mt-0.5">
-          <span class="text-xs text-ink-faint">Value:</span>
-          <input
-            class="input text-xs py-0 px-1 w-20"
-            type="number"
-            step="any"
-            placeholder="gp"
-            value={getAppraisedValue(entry) ?? ''}
-            on:blur={(e) => saveAppraisedValue(entry, e.target.value)}
-            on:keydown={(e) => e.key === 'Enter' && e.target.blur()}
-          />
-          <span class="text-xs text-ink-faint">gp</span>
+        <div class="flex flex-wrap items-center gap-x-3 gap-y-1 mt-0.5">
+          <div class="flex items-center gap-1">
+            <span class="text-xs text-ink-faint">Value:</span>
+            <input
+              class="input text-xs py-0 px-1 w-20"
+              type="number"
+              step="any"
+              placeholder="gp"
+              value={getAppraisedValue(entry) ?? ''}
+              on:blur={(e) => saveAppraisedValue(entry, e.target.value)}
+              on:keydown={(e) => e.key === 'Enter' && e.target.blur()}
+            />
+            <span class="text-xs text-ink-faint">gp</span>
+          </div>
+          <div class="flex items-center gap-1">
+            <span class="text-xs text-ink-faint">Material:</span>
+            <input
+              class="input text-xs py-0 px-1 w-24"
+              type="text"
+              placeholder="Ruby, Gold..."
+              value={getTreasureMaterial(entry) ?? ''}
+              on:blur={(e) => saveTreasureField(entry, 'material', e.target.value)}
+              on:keydown={(e) => e.key === 'Enter' && e.target.blur()}
+            />
+          </div>
+          <div class="flex items-center gap-1">
+            <span class="text-xs text-ink-faint">Desc:</span>
+            <input
+              class="input text-xs py-0 px-1 w-44"
+              type="text"
+              placeholder="A bust of Stefan Karameikos..."
+              value={getTreasureDescription(entry) ?? ''}
+              on:blur={(e) => saveTreasureField(entry, 'description', e.target.value)}
+              on:keydown={(e) => e.key === 'Enter' && e.target.blur()}
+            />
+          </div>
         </div>
       {/if}
       {#if isGM && entry.item.secrets?.length}
