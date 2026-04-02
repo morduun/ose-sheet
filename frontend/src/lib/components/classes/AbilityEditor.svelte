@@ -70,10 +70,13 @@
     };
   }
 
-  // Build entry from ability name + description + optional metadata
-  function buildEntry(name, description) {
+  // Build entry from ability name + description (string or {text, min_level}) + optional metadata
+  function buildEntry(name, rawDesc) {
     const meta = abilityMetadata[name];
-    const base = { name, description, modTarget: 'ac', modValues: fill(maxLevel, 0), rolls: [], attacks: [] };
+    const isObj = rawDesc && typeof rawDesc === 'object';
+    const description = isObj ? (rawDesc.text || '') : (rawDesc || '');
+    const minLevel = isObj ? (rawDesc.min_level ?? null) : null;
+    const base = { name, description, minLevel, modTarget: 'ac', modValues: fill(maxLevel, 0), rolls: [], attacks: [] };
     if (!meta) {
       return { ...base, metaType: 'none' };
     }
@@ -106,11 +109,16 @@
   // Convert object to editable array
   let entries = Object.entries(abilities).map(([name, description]) => buildEntry(name, description));
 
-  /** Return current entries as {name: description} object. */
+  /** Return current entries as {name: description|{text, min_level}} object. */
   export function getAbilities() {
     const obj = {};
     for (const e of entries) {
-      if (e.name.trim()) obj[e.name.trim()] = e.description;
+      if (!e.name.trim()) continue;
+      if (e.minLevel != null && e.minLevel > 0) {
+        obj[e.name.trim()] = { text: e.description, min_level: e.minLevel };
+      } else {
+        obj[e.name.trim()] = e.description;
+      }
     }
     return obj;
   }
@@ -183,7 +191,7 @@
 
   function addEntry() {
     entries = [...entries, {
-      name: '', description: '', metaType: 'none',
+      name: '', description: '', minLevel: null, metaType: 'none',
       modTarget: 'ac', modValues: fill(maxLevel, 0),
       rolls: [], attacks: [],
     }];
@@ -233,6 +241,16 @@
           placeholder="Ability name"
           bind:value={entry.name}
         />
+        <div class="flex items-center gap-1 shrink-0">
+          <span class="text-xs text-ink-faint">From L</span>
+          <input
+            type="number"
+            class="input w-14 text-center text-sm"
+            min="1"
+            placeholder="1"
+            bind:value={entry.minLevel}
+          />
+        </div>
         <select class="input w-40" bind:value={entry.metaType}>
           {#each META_TYPES as mt}
             <option value={mt.value}>{mt.label}</option>

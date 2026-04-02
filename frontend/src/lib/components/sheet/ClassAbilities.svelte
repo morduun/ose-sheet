@@ -6,9 +6,19 @@
   $: classData = character.character_class?.class_data ?? {};
   $: levelIndex = Math.max(0, (character.level ?? 1) - 1);
 
-  // --- Abilities (dict: name → description) ---
+  // --- Abilities (dict: name → description|{text, min_level}) ---
+  // Normalize to [{name, description, minLevel}] and filter by character level
   $: abilitiesEntries = classData.abilities
     ? Object.entries(classData.abilities)
+        .map(([name, val]) => {
+          const isObj = val && typeof val === 'object';
+          return {
+            name,
+            description: isObj ? (val.text || '') : (val || ''),
+            minLevel: isObj ? (val.min_level ?? null) : null,
+          };
+        })
+        .filter(a => a.minLevel == null || character.level >= a.minLevel)
     : [];
   $: hasAbilities = abilitiesEntries.length > 0;
 
@@ -60,19 +70,19 @@
     <div class="panel">
       <h2 class="section-title">Class Abilities</h2>
       <ul class="space-y-3">
-        {#each abilitiesEntries as [name, description]}
-          {@const badge = getModifierBadge(name)}
-          {@const meta = abilityMeta[name]}
+        {#each abilitiesEntries as ability}
+          {@const badge = getModifierBadge(ability.name)}
+          {@const meta = abilityMeta[ability.name]}
           <li class="text-sm text-ink">
             <div class="flex items-center gap-2">
-              <strong class="font-medium">{name}:</strong>
+              <strong class="font-medium">{ability.name}:</strong>
               {#if badge}
                 <span class="inline-block text-xs font-bold px-1.5 py-0.5 rounded bg-parchment-200 border border-ink-faint text-ink">{badge}</span>
               {:else if meta?.type === 'special_attack'}
                 <span class="inline-block text-xs font-bold px-1.5 py-0.5 rounded bg-parchment-200 border border-ink-faint text-ink">Weapon Attack</span>
               {/if}
             </div>
-            <Markdown text={description} />
+            <Markdown text={ability.description} />
           </li>
         {/each}
       </ul>

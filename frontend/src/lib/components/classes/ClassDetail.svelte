@@ -118,11 +118,17 @@
   <div class="panel mb-4">
     <h2 class="section-title">Abilities</h2>
     <div class="flex flex-col gap-2">
-      {#each Object.entries(cd.abilities) as [name, desc]}
+      {#each Object.entries(cd.abilities) as [name, rawDesc]}
         {@const meta = abilityMeta[name]}
+        {@const isObj = rawDesc && typeof rawDesc === 'object'}
+        {@const desc = isObj ? (rawDesc.text || '') : (rawDesc || '')}
+        {@const minLevel = isObj ? rawDesc.min_level : null}
         <div>
           <div class="flex items-center gap-2">
             <strong class="text-ink">{name}</strong>
+            {#if minLevel}
+              <span class="text-xs px-1.5 py-0.5 rounded bg-parchment-200 border border-ink-faint text-ink-faint">Level {minLevel}+</span>
+            {/if}
             {#if meta?.type === 'modifier'}
               <span class="text-xs px-1.5 py-0.5 rounded bg-parchment-200 border border-ink-faint text-ink-faint">
                 {TARGET_LABELS[meta.target] || meta.target} modifier: {Math.min(...meta.values)} to {Math.max(...meta.values)}

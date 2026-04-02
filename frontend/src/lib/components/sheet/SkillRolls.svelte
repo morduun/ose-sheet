@@ -47,11 +47,18 @@
 
   // --- Ability Metadata Skill Rolls ---
   $: abilityMeta = classData.ability_metadata ?? {};
+  $: abilitiesDict = classData.abilities ?? {};
 
   function getAllAbilitySkillRolls() {
     const results = [];
+    const charLevel = character.level ?? 1;
     for (const [name, meta] of Object.entries(abilityMeta)) {
       if (!meta || meta.type !== 'skill') continue;
+      // Check min_level from abilities dict
+      const abilityDef = abilitiesDict[name];
+      if (abilityDef && typeof abilityDef === 'object' && abilityDef.min_level) {
+        if (charLevel < abilityDef.min_level) continue;
+      }
       for (const [rName, r] of Object.entries(meta.rolls || {})) {
         results.push({
           abilityName: name,
