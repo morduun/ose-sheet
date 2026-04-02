@@ -1,4 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+import uuid
+from pathlib import Path
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, status
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy import update as sa_update
@@ -515,6 +517,117 @@ async def delete_character(
     db.delete(db_character)
     db.commit()
     return None
+
+
+# --- Portrait & token upload ---
+
+UPLOADS_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "uploads"
+ALLOWED_IMAGE_TYPES = {"image/png", "image/jpeg", "image/webp", "image/gif"}
+MAX_IMAGE_SIZE = 5 * 1024 * 1024  # 5 MB
+
+
+async def _save_image(file: UploadFile, character_id: int, kind: str, db_character, db) -> str:
+    """Save an uploaded image, remove old file, return new filename."""
+    if file.content_type not in ALLOWED_IMAGE_TYPES:
+        raise HTTPException(status_code=400, detail=f"Invalid image type: {file.content_type}. Allowed: PNG, JPEG, WebP, GIF.")
+
+    data = await file.read()
+    if len(data) > MAX_IMAGE_SIZE:
+        raise HTTPException(status_code=400, detail="Image too large. Maximum 5 MB.")
+
+    ext = file.filename.rsplit(".", 1)[-1].lower() if "." in file.filename else "png"
+    if ext not in ("png", "jpg", "jpeg", "webp", "gif"):
+        ext = "png"
+
+    filename = f"{character_id}_{kind}_{uuid.uuid4().hex[:8]}.{ext}"
+    filepath = UPLOADS_DIR / filename
+    UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+
+    # Remove old file
+    old_filename = getattr(db_character, f"{kind}_filename")
+    if old_filename:
+        old_path = UPLOADS_DIR / old_filename
+        if old_path.exists():
+            old_path.unlink()
+
+    filepath.write_bytes(data)
+    setattr(db_character, f"{kind}_filename", filename)
+    db.commit()
+    return filename
+
+
+@router.post("/{character_id}/portrait")
+async def upload_portrait(
+    character_id: int,
+    file: UploadFile,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Upload a portrait image for a character."""
+    db_character = db.query(Character).filter(Character.id == character_id).first()
+    if not db_character:
+        raise HTTPException(status_code=404, detail="Character not found")
+    if not can_edit_character(current_user, db_character):
+        raise HTTPException(status_code=403, detail="Not authorized")
+    filename = await _save_image(file, character_id, "portrait", db_character, db)
+    return {"filename": filename, "url": f"/api/uploads/{filename}"}
+
+
+@router.delete("/{character_id}/portrait", status_code=204)
+async def delete_portrait(
+    character_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Remove a character's portrait."""
+    db_character = db.query(Character).filter(Character.id == character_id).first()
+    if not db_character:
+        raise HTTPException(status_code=404, detail="Character not found")
+    if not can_edit_character(current_user, db_character):
+        raise HTTPException(status_code=403, detail="Not authorized")
+    if db_character.portrait_filename:
+        old_path = UPLOADS_DIR / db_character.portrait_filename
+        if old_path.exists():
+            old_path.unlink()
+        db_character.portrait_filename = None
+        db.commit()
+
+
+@router.post("/{character_id}/token")
+async def upload_token(
+    character_id: int,
+    file: UploadFile,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Upload a token image for a character."""
+    db_character = db.query(Character).filter(Character.id == character_id).first()
+    if not db_character:
+        raise HTTPException(status_code=404, detail="Character not found")
+    if not can_edit_character(current_user, db_character):
+        raise HTTPException(status_code=403, detail="Not authorized")
+    filename = await _save_image(file, character_id, "token", db_character, db)
+    return {"filename": filename, "url": f"/api/uploads/{filename}"}
+
+
+@router.delete("/{character_id}/token", status_code=204)
+async def delete_token(
+    character_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Remove a character's token."""
+    db_character = db.query(Character).filter(Character.id == character_id).first()
+    if not db_character:
+        raise HTTPException(status_code=404, detail="Character not found")
+    if not can_edit_character(current_user, db_character):
+        raise HTTPException(status_code=403, detail="Not authorized")
+    if db_character.token_filename:
+        old_path = UPLOADS_DIR / db_character.token_filename
+        if old_path.exists():
+            old_path.unlink()
+        db_character.token_filename = None
+        db.commit()
 
 
 @router.post("/{character_id}/dismiss", response_model=CharacterSchema)

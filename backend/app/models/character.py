@@ -63,6 +63,10 @@ class Character(Base):
     status = Column(String, default="active", nullable=False, server_default="active")  # "active", "independent", "fallen"
     is_alive = Column(Boolean, default=True)
 
+    # Portraits
+    portrait_filename = Column(String, nullable=True)
+    token_filename = Column(String, nullable=True)
+
     # Additional Notes
     notes = Column(String, nullable=True)
 

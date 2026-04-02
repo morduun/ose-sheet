@@ -1,5 +1,7 @@
+from pathlib import Path
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 from app.config import settings
 from app.database import engine, Base
@@ -58,6 +60,11 @@ async def health_check():
     """Health check endpoint."""
     return {"status": "healthy", "version": settings.app_version}
 
+
+# Serve uploaded files (portraits, tokens)
+_uploads_dir = Path(__file__).resolve().parent.parent / "data" / "uploads"
+_uploads_dir.mkdir(parents=True, exist_ok=True)
+app.mount("/api/uploads", StaticFiles(directory=str(_uploads_dir)), name="uploads")
 
 # Include API routers
 app.include_router(auth.router, prefix="/api/auth", tags=["Authentication"])

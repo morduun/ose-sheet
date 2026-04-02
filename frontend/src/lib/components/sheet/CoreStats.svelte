@@ -21,6 +21,45 @@
   let warningToast = '';
   let warningTimer = null;
 
+  // Portrait & token
+  let showPortraitModal = false;
+  let portraitHover = false;
+  let uploading = false;
+
+  $: portraitUrl = character.portrait_filename ? `/api/uploads/${character.portrait_filename}` : null;
+  $: tokenUrl = character.token_filename ? `/api/uploads/${character.token_filename}` : null;
+  $: initials = character.name?.split(/\s+/).map(w => w[0]).join('').slice(0, 2).toUpperCase() || '?';
+
+  async function uploadImage(kind, file) {
+    if (!file) return;
+    uploading = true;
+    try {
+      const result = await api.upload(`/characters/${character.id}/${kind}`, file);
+      character[`${kind}_filename`] = result.filename;
+      character = character;
+    } catch (e) {
+      error = e.message;
+    } finally {
+      uploading = false;
+    }
+  }
+
+  async function removeImage(kind) {
+    try {
+      await api.delete(`/characters/${character.id}/${kind}`);
+      character[`${kind}_filename`] = null;
+      character = character;
+    } catch (e) {
+      error = e.message;
+    }
+  }
+
+  function handleFileSelect(kind, event) {
+    const file = event.target.files?.[0];
+    if (file) uploadImage(kind, file);
+    event.target.value = '';
+  }
+
   function showWarning(msg) {
     warningToast = msg;
     if (warningTimer) clearTimeout(warningTimer);
@@ -556,7 +595,30 @@
   {/if}
 
   <!-- Header row -->
-  <div class="flex flex-wrap items-center gap-4">
+  <div class="flex flex-wrap items-center gap-4 relative">
+    <!-- Portrait thumbnail -->
+    <!-- svelte-ignore a11y-click-events-have-key-events -->
+    <!-- svelte-ignore a11y-no-static-element-interactions -->
+    <div
+      class="relative w-12 h-12 rounded-full shrink-0 border-2 border-parchment-200 overflow-hidden cursor-pointer transition-shadow hover:shadow-md hover:border-ink-faint/40"
+      on:click={() => showPortraitModal = true}
+      on:mouseenter={() => portraitHover = true}
+      on:mouseleave={() => portraitHover = false}
+    >
+      {#if portraitUrl}
+        <img src={portraitUrl} alt="{character.name} portrait" class="w-full h-full object-cover" />
+      {:else}
+        <div class="w-full h-full flex items-center justify-center bg-parchment-100 text-ink-faint font-serif text-sm">
+          {initials}
+        </div>
+      {/if}
+    </div>
+    <!-- Hover expand -->
+    {#if portraitHover && portraitUrl}
+      <div class="absolute z-50 top-0 left-14 pointer-events-none">
+        <img src={portraitUrl} alt="{character.name} portrait" class="w-96 h-96 object-cover rounded-lg shadow-lg border-2 border-parchment-200" />
+      </div>
+    {/if}
     <div>
       <h1 class="font-serif text-3xl text-ink">{character.name}</h1>
       <p class="text-ink-faint text-sm">
@@ -1198,6 +1260,59 @@
     </div>
   {/if}
 
+  <!-- Portrait & Token Modal -->
+  <Modal bind:open={showPortraitModal} title="Portrait & Token" maxWidth="max-w-md">
+    <div class="space-y-4">
+      <!-- Portrait -->
+      <div>
+        <div class="flex items-center justify-between mb-2">
+          <span class="text-sm font-medium text-ink">Portrait</span>
+          <div class="flex gap-2">
+            <label class="btn-ghost text-xs cursor-pointer">
+              {uploading ? 'Uploading...' : 'Upload'}
+              <input type="file" accept="image/*" class="hidden" on:change={(e) => handleFileSelect('portrait', e)} disabled={uploading} />
+            </label>
+            {#if portraitUrl}
+              <button class="btn-danger text-xs" on:click={() => removeImage('portrait')}>Remove</button>
+            {/if}
+          </div>
+        </div>
+        {#if portraitUrl}
+          <img src={portraitUrl} alt="{character.name} portrait" class="w-full max-h-64 object-contain rounded border border-parchment-200" />
+        {:else}
+          <div class="w-full h-32 flex items-center justify-center bg-parchment-100 rounded border border-parchment-200 text-ink-faint text-sm">
+            No portrait set
+          </div>
+        {/if}
+      </div>
+
+      <!-- Token -->
+      <div>
+        <div class="flex items-center justify-between mb-2">
+          <span class="text-sm font-medium text-ink">Token</span>
+          <div class="flex gap-2">
+            <label class="btn-ghost text-xs cursor-pointer">
+              {uploading ? 'Uploading...' : 'Upload'}
+              <input type="file" accept="image/*" class="hidden" on:change={(e) => handleFileSelect('token', e)} disabled={uploading} />
+            </label>
+            {#if tokenUrl}
+              <button class="btn-danger text-xs" on:click={() => removeImage('token')}>Remove</button>
+            {/if}
+          </div>
+        </div>
+        {#if tokenUrl}
+          <div class="flex justify-center">
+            <img src={tokenUrl} alt="{character.name} token" class="w-24 h-24 object-cover rounded-full border-2 border-parchment-200" />
+          </div>
+        {:else}
+          <div class="w-24 h-24 mx-auto flex items-center justify-center bg-parchment-100 rounded-full border border-parchment-200 text-ink-faint text-xs">
+            No token
+          </div>
+        {/if}
+        <p class="text-[10px] text-ink-faint mt-1 text-center">Used in the referee encounter tracker</p>
+      </div>
+    </div>
+  </Modal>
 
 </div>
 

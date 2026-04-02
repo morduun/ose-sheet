@@ -71,6 +71,10 @@ class CharacterBase(BaseModel):
     # Notes
     notes: str | None = None
 
+    # Portraits (read-only in base, uploaded via separate endpoint)
+    portrait_filename: str | None = None
+    token_filename: str | None = None
+
 
 class CharacterCreate(CharacterBase):
     """Schema for creating a new character."""

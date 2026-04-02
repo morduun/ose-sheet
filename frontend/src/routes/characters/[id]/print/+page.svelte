@@ -252,12 +252,21 @@
     <div class="max-w-[800px] mx-auto p-8 print:p-4 space-y-6">
 
       <!-- 1. Header -->
-      <div class="border-b-2 border-ink pb-3">
-        <h1 class="font-serif text-4xl text-ink print:text-black">{character.name}</h1>
-        <p class="text-ink-faint print:text-gray-500 mt-1">
-          {character.character_class?.name ?? character.combat_stats?.monster_name ?? 'Unknown'} · Level {character.level} · {character.alignment ?? 'Neutral'}
-          · XP: {character.xp ?? 0}
-        </p>
+      <div class="border-b-2 border-ink pb-3 flex items-center gap-4">
+        {#if character.portrait_filename}
+          <img
+            src="/api/uploads/{character.portrait_filename}"
+            alt="{character.name}"
+            class="w-16 h-16 rounded-full object-cover border-2 border-gray-300 shrink-0 print:border-gray-400"
+          />
+        {/if}
+        <div>
+          <h1 class="font-serif text-4xl text-ink print:text-black">{character.name}</h1>
+          <p class="text-ink-faint print:text-gray-500 mt-1">
+            {character.character_class?.name ?? character.combat_stats?.monster_name ?? 'Unknown'} · Level {character.level} · {character.alignment ?? 'Neutral'}
+            · XP: {character.xp ?? 0}
+          </p>
+        </div>
       </div>
 
       <!-- 2. Fallen Banner -->
@@ -596,17 +605,25 @@
 
       <!-- 11. Class Abilities -->
       {#if classData.abilities && Object.keys(classData.abilities).length > 0}
-        <div>
-          <h2 class="section-title print:text-black">Class Abilities</h2>
-          <ul class="space-y-1">
-            {#each Object.entries(classData.abilities) as [name, desc]}
-              <li class="text-sm text-ink print:text-black">
-                <strong>{name}:</strong>
-                <Markdown text={desc} />
-              </li>
-            {/each}
-          </ul>
-        </div>
+        {@const filteredAbilities = Object.entries(classData.abilities)
+          .map(([name, val]) => {
+            const isObj = val && typeof val === 'object';
+            return { name, desc: isObj ? (val.text || '') : (val || ''), minLevel: isObj ? val.min_level : null };
+          })
+          .filter(a => a.minLevel == null || (character.level ?? 1) >= a.minLevel)}
+        {#if filteredAbilities.length > 0}
+          <div>
+            <h2 class="section-title print:text-black">Class Abilities</h2>
+            <ul class="space-y-1">
+              {#each filteredAbilities as ability}
+                <li class="text-sm text-ink print:text-black">
+                  <strong>{ability.name}:</strong>
+                  <Markdown text={ability.desc} />
+                </li>
+              {/each}
+            </ul>
+          </div>
+        {/if}
       {/if}
 
       <!-- 12. Retainers (PC only) -->
