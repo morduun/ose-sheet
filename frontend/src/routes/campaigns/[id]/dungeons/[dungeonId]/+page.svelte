@@ -466,7 +466,13 @@
     <!-- Header -->
     <div class="flex items-center justify-between mb-4 flex-wrap gap-2">
       <div>
-        <a href="/campaigns/{campaignId}" class="text-xs text-ink-faint hover:text-ink">&larr; {campaign?.name ?? 'Campaign'}</a>
+        <div class="flex items-center gap-2 text-xs text-ink-faint">
+          <a href="/campaigns/{campaignId}" class="hover:text-ink">&larr; {campaign?.name ?? 'Campaign'}</a>
+          {#if isGM}
+            <span>·</span>
+            <a href="/campaigns/{campaignId}/referee/dungeon" class="hover:text-ink">Dungeon Tracker</a>
+          {/if}
+        </div>
         {#if dungeon.description}
           <p class="text-sm text-ink-faint mt-1">{dungeon.description}</p>
         {/if}
