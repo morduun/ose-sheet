@@ -73,9 +73,55 @@
     hp_current: 4,
     xp: 0,
     gold: 0,
+    secondary_skill: '',
   };
 
   const alignments = ['Lawful', 'Neutral', 'Chaotic'];
+
+  // Secondary skills table (OSE p25, d100)
+  const SECONDARY_SKILLS = [
+    [3, 'Animal trainer'], [5, 'Armourer'], [9, 'Baker'], [12, 'Blacksmith'],
+    [13, 'Bookbinder'], [16, 'Bowyer / fletcher'], [20, 'Brewer'], [23, 'Butcher'],
+    [26, 'Carpenter'], [28, 'Chandler'], [33, 'Cooper'], [35, 'Coppersmith'],
+    [46, 'Farmer'], [50, 'Fisher'], [54, 'Furrier'], [55, 'Glassblower'],
+    [59, 'Huntsman'], [62, 'Lapidary / jeweller'], [66, 'Lorimer'], [67, 'Mapmaker'],
+    [69, 'Mason'], [73, 'Miner'], [76, 'Potter'], [78, 'Roper'],
+    [81, 'Seafarer'], [84, 'Shipwright'], [87, 'Tailor'], [90, 'Tanner'],
+    [93, 'Thatcher / roofer'], [96, 'Woodcutter'], [98, 'Vintner'],
+  ];
+
+  const SECONDARY_SKILL_NAMES = SECONDARY_SKILLS.map(([, name]) => name);
+
+  function lookupSkill(roll) {
+    if (roll >= 99) return lookupSkill(Math.floor(Math.random() * 100) + 1);
+    for (const [max, name] of SECONDARY_SKILLS) {
+      if (roll <= max) return name;
+    }
+    return 'Vintner';
+  }
+
+  async function rollSecondarySkill() {
+    if (!rollDice) return;
+    const total = await rollDice('1d100', (roll) => {
+      if (roll >= 99) {
+        const skill1 = lookupSkill(Math.floor(Math.random() * 98) + 1);
+        let skill2 = lookupSkill(Math.floor(Math.random() * 98) + 1);
+        while (skill2 === skill1) skill2 = lookupSkill(Math.floor(Math.random() * 98) + 1);
+        return { display: roll, text: `Roll twice: ${skill1}, ${skill2}` };
+      }
+      return { display: roll, text: lookupSkill(roll) };
+    });
+    if (total != null) {
+      if (total >= 99) {
+        const skill1 = lookupSkill(Math.floor(Math.random() * 98) + 1);
+        let skill2 = lookupSkill(Math.floor(Math.random() * 98) + 1);
+        while (skill2 === skill1) skill2 = lookupSkill(Math.floor(Math.random() * 98) + 1);
+        form.secondary_skill = `${skill1}, ${skill2}`;
+      } else {
+        form.secondary_skill = lookupSkill(total);
+      }
+    }
+  }
 
   const abilityScores = [
     { key: 'strength', label: 'Strength' },
@@ -235,8 +281,9 @@
         hp_max: parseInt(form.hp_max),
         hp_current: parseInt(form.hp_current),
         xp: parseInt(form.xp),
-        gold: parseInt(form.gold) || 0,
+        secondary_skill: form.secondary_skill?.trim() || null,
       };
+      const startingGold = parseInt(form.gold) || 0;
       if (masterId) {
         payload.master_id = parseInt(masterId);
         payload.character_type = 'retainer';
@@ -246,6 +293,12 @@
         else delete payload.player_id;
       }
       const char = await api.post('/characters/', payload);
+      // Create starting gold as a currency instance
+      if (startingGold > 0) {
+        try {
+          await api.post(`/characters/${char.id}/currency/add`, { gp: startingGold });
+        } catch { /* non-fatal */ }
+      }
       if (masterId) {
         goto(`/characters/${masterId}`);
       } else {
@@ -331,6 +384,20 @@
               <option value={a}>{a}</option>
             {/each}
           </select>
+        </div>
+
+        <!-- Secondary Skill -->
+        <div>
+          <label class="block text-sm text-ink mb-1" for="char-secondary">Secondary Skill</label>
+          <div class="flex gap-2">
+            <input id="char-secondary" class="input flex-1" type="text" list="secondary-skill-list" bind:value={form.secondary_skill} placeholder="e.g. Blacksmith" />
+            <datalist id="secondary-skill-list">
+              {#each SECONDARY_SKILL_NAMES as name}
+                <option value={name} />
+              {/each}
+            </datalist>
+            <button type="button" class="btn text-xs shrink-0" on:click={rollSecondarySkill} title="Roll d100 on the secondary skills table">Roll</button>
+          </div>
         </div>
 
         <!-- XP -->

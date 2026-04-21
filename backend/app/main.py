@@ -7,7 +7,7 @@ from app.config import settings
 from app.database import engine, Base
 
 # Import routers
-from app.api import allowed_emails, animals, auth, backup, campaigns, characters, character_classes, dungeons, items, mercenaries, monsters, specialists, spells, treasure, vehicles
+from app.api import allowed_emails, animals, auth, backup, campaigns, characters, character_classes, dungeons, hex_maps, items, mercenaries, monsters, specialists, spells, treasure, vehicles
 
 # Create FastAPI application
 app = FastAPI(
@@ -83,6 +83,7 @@ app.include_router(allowed_emails.router, prefix="/api/allowed-emails", tags=["A
 app.include_router(animals.types_router, prefix="/api/animal-types", tags=["Animals"])
 app.include_router(animals.router, prefix="/api/characters/{character_id}/animals", tags=["Animals"])
 app.include_router(dungeons.router, prefix="/api/campaigns/{campaign_id}/dungeons", tags=["Dungeons"])
+app.include_router(hex_maps.router, prefix="/api/campaigns/{campaign_id}/hex-maps", tags=["Hex Maps"])
 app.include_router(treasure.types_router, prefix="/api/treasure-types", tags=["Treasure"])
 app.include_router(treasure.roll_router, prefix="/api/treasure/roll", tags=["Treasure"])
 app.include_router(vehicles.types_router, prefix="/api/vehicle-types", tags=["Vehicles"])

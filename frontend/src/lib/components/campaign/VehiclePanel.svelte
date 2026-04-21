@@ -191,10 +191,10 @@
     }
   }
 
-  async function removeCargo(vehicleId, itemId) {
+  async function removeCargo(vehicleId, instanceId) {
     try {
-      await api.delete(`/campaigns/${campaignId}/vehicles/${vehicleId}/cargo/${itemId}`);
-      cargo = cargo.filter(c => c.item.id !== itemId);
+      await api.delete(`/campaigns/${campaignId}/vehicles/${vehicleId}/cargo/${instanceId}`);
+      cargo = cargo.filter(c => c.instance_id !== instanceId);
       await loadVehicles();
     } catch (e) {
       alert(e.message);
@@ -214,7 +214,7 @@
     takingItem = true;
     try {
       await api.post(
-        `/campaigns/${campaignId}/vehicles/${takeVehicleId}/cargo/${takeEntry.item.id}/take`,
+        `/campaigns/${campaignId}/vehicles/${takeVehicleId}/cargo/${takeEntry.instance_id}/take`,
         { character_id: parseInt(takeCharacterId), quantity: takeQty }
       );
       // Refresh cargo
@@ -382,7 +382,7 @@
                         {#if isGM}
                           <button
                             class="btn-danger text-xs px-1.5 py-0.5"
-                            on:click={() => removeCargo(v.id, entry.item.id)}
+                            on:click={() => removeCargo(v.id, entry.instance_id)}
                           >✕</button>
                         {/if}
                       </div>

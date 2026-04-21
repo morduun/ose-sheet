@@ -40,6 +40,15 @@
 
   const alignments = ['Lawful', 'Neutral', 'Chaotic'];
 
+  const SECONDARY_SKILL_NAMES = [
+    'Animal trainer', 'Armourer', 'Baker', 'Blacksmith', 'Bookbinder',
+    'Bowyer / fletcher', 'Brewer', 'Butcher', 'Carpenter', 'Chandler',
+    'Cooper', 'Coppersmith', 'Farmer', 'Fisher', 'Furrier', 'Glassblower',
+    'Huntsman', 'Lapidary / jeweller', 'Lorimer', 'Mapmaker', 'Mason',
+    'Miner', 'Potter', 'Roper', 'Seafarer', 'Shipwright', 'Tailor',
+    'Tanner', 'Thatcher / roofer', 'Woodcutter', 'Vintner',
+  ];
+
   const abilityScores = [
     { key: 'strength', label: 'Strength' },
     { key: 'intelligence', label: 'Intelligence' },
@@ -74,6 +83,7 @@
         hp_max: character.hp_max ?? 4,
         hp_current: character.hp_current ?? 4,
         xp: character.xp ?? 0,
+        secondary_skill: character.secondary_skill ?? '',
       };
     } catch (e) {
       error = e.message;
@@ -101,6 +111,7 @@
         hp_max: parseInt(form.hp_max),
         hp_current: parseInt(form.hp_current),
         xp: parseInt(form.xp),
+        secondary_skill: form.secondary_skill?.trim() || null,
       };
       if (form.player_id) payload.player_id = parseInt(form.player_id);
       else delete payload.player_id;
@@ -167,6 +178,17 @@
               <option value={a}>{a}</option>
             {/each}
           </select>
+        </div>
+
+        <!-- Secondary Skill -->
+        <div>
+          <label class="block text-sm text-ink mb-1" for="edit-secondary">Secondary Skill</label>
+          <input id="edit-secondary" class="input w-full" type="text" list="secondary-skill-list-edit" bind:value={form.secondary_skill} placeholder="e.g. Blacksmith" />
+          <datalist id="secondary-skill-list-edit">
+            {#each SECONDARY_SKILL_NAMES as name}
+              <option value={name} />
+            {/each}
+          </datalist>
         </div>
 
         <!-- XP -->

@@ -179,7 +179,7 @@
     const result = {};
     for (const pc of pcs) {
       try {
-        const inv = await api.get(`/characters/${pc.id}/items`);
+        const inv = await api.get(`/characters/${pc.id}/inventory`);
         const foodItems = inv.filter(isFood);
         const totalDays = foodItems.reduce((sum, e) => sum + e.quantity, 0);
         result[pc.id] = { name: pc.name, quantity: totalDays, items: foodItems.map(e => e.item.name) };

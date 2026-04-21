@@ -1,14 +1,13 @@
 """Vehicle management API endpoints."""
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select, insert, update as sa_update, delete as sa_delete
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.dependencies import get_current_user
 from app.models import User, Campaign, Item, Vehicle, VehicleType
-from app.models.vehicle import vehicle_cargo
-from app.models.item import character_items
+from app.models.vehicle import VehicleCargo
+from app.models.item import CharacterItem
 from app.schemas.vehicle import (
     VehicleTypeInfo,
     VehicleTypeCreate,
@@ -173,15 +172,12 @@ def _check_gm(user: User, campaign: Campaign):
 
 def _cargo_weight(vehicle_id: int, db: Session) -> int:
     """Sum item weight * quantity for all cargo in a vehicle."""
-    rows = db.execute(
-        select(vehicle_cargo.c.item_id, vehicle_cargo.c.quantity)
-        .where(vehicle_cargo.c.vehicle_id == vehicle_id)
-    ).fetchall()
-    if not rows:
+    cargo_rows = db.query(VehicleCargo).filter(VehicleCargo.vehicle_id == vehicle_id).all()
+    if not cargo_rows:
         return 0
-    items = db.query(Item).filter(Item.id.in_([r.item_id for r in rows])).all()
+    items = db.query(Item).filter(Item.id.in_([r.item_id for r in cargo_rows])).all()
     weight_map = {i.id: i.weight or 0 for i in items}
-    return int(sum(weight_map.get(r.item_id, 0) * r.quantity for r in rows))
+    return int(sum(weight_map.get(r.item_id, 0) * r.quantity for r in cargo_rows))
 
 
 def _vehicle_response(v: Vehicle, db: Session) -> VehicleResponse:
@@ -361,19 +357,20 @@ async def list_cargo(
     if not v:
         raise HTTPException(status_code=404, detail="Vehicle not found")
 
-    rows = db.execute(
-        select(vehicle_cargo.c.item_id, vehicle_cargo.c.quantity)
-        .where(vehicle_cargo.c.vehicle_id == vehicle_id)
-    ).fetchall()
+    rows = db.query(VehicleCargo).filter(VehicleCargo.vehicle_id == vehicle_id).all()
     if not rows:
         return []
 
     items = db.query(Item).filter(Item.id.in_([r.item_id for r in rows])).all()
-    qty_map = {r.item_id: r.quantity for r in rows}
+    item_map = {i.id: i for i in items}
     return [
-        VehicleCargoEntry(item=_item_to_public(i), quantity=qty_map[i.id])
-        for i in items
-        if i.id in qty_map
+        VehicleCargoEntry(
+            instance_id=row.id,
+            item=_item_to_public(item_map[row.item_id]),
+            quantity=row.quantity,
+        )
+        for row in rows
+        if row.item_id in item_map
     ]
 
 
@@ -397,41 +394,22 @@ async def add_cargo(
     if not item:
         raise HTTPException(status_code=404, detail="Item not found")
 
-    existing = db.execute(
-        select(vehicle_cargo.c.quantity)
-        .where(
-            (vehicle_cargo.c.vehicle_id == vehicle_id)
-            & (vehicle_cargo.c.item_id == req.item_id)
-        )
-    ).scalar()
-
-    if existing is not None:
-        db.execute(
-            sa_update(vehicle_cargo)
-            .where(
-                (vehicle_cargo.c.vehicle_id == vehicle_id)
-                & (vehicle_cargo.c.item_id == req.item_id)
-            )
-            .values(quantity=existing + req.quantity)
-        )
-    else:
-        db.execute(
-            insert(vehicle_cargo).values(
-                vehicle_id=vehicle_id,
-                item_id=req.item_id,
-                quantity=req.quantity,
-            )
-        )
-
+    cargo_row = VehicleCargo(
+        vehicle_id=vehicle_id,
+        item_id=req.item_id,
+        quantity=req.quantity,
+    )
+    db.add(cargo_row)
     db.commit()
+
     return await list_cargo(campaign_id, vehicle_id, db, current_user)
 
 
-@router.delete("/{vehicle_id}/cargo/{item_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{vehicle_id}/cargo/{instance_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def remove_cargo(
     campaign_id: int,
     vehicle_id: int,
-    item_id: int,
+    instance_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -439,20 +417,22 @@ async def remove_cargo(
     campaign = _get_campaign_or_404(db, campaign_id)
     _check_gm(current_user, campaign)
 
-    db.execute(
-        sa_delete(vehicle_cargo).where(
-            (vehicle_cargo.c.vehicle_id == vehicle_id)
-            & (vehicle_cargo.c.item_id == item_id)
-        )
-    )
+    cargo_row = db.query(VehicleCargo).filter(
+        VehicleCargo.id == instance_id,
+        VehicleCargo.vehicle_id == vehicle_id,
+    ).first()
+    if not cargo_row:
+        raise HTTPException(status_code=404, detail="Cargo entry not found")
+
+    db.delete(cargo_row)
     db.commit()
 
 
-@router.post("/{vehicle_id}/cargo/{item_id}/take", response_model=dict)
+@router.post("/{vehicle_id}/cargo/{instance_id}/take", response_model=dict)
 async def take_from_cargo(
     campaign_id: int,
     vehicle_id: int,
-    item_id: int,
+    instance_id: int,
     req: VehicleCargoTakeRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -466,73 +446,43 @@ async def take_from_cargo(
     if not character or character.campaign_id != campaign_id:
         raise HTTPException(status_code=400, detail="Character not in this campaign")
 
-    # Check cargo quantity
-    cargo_qty = db.execute(
-        select(vehicle_cargo.c.quantity)
-        .where(
-            (vehicle_cargo.c.vehicle_id == vehicle_id)
-            & (vehicle_cargo.c.item_id == item_id)
-        )
-    ).scalar()
-    if cargo_qty is None or cargo_qty < req.quantity:
-        raise HTTPException(status_code=400, detail=f"Not enough in cargo (available: {cargo_qty or 0})")
+    # Look up the cargo row by instance_id
+    cargo_row = db.query(VehicleCargo).filter(
+        VehicleCargo.id == instance_id,
+        VehicleCargo.vehicle_id == vehicle_id,
+    ).first()
+    if not cargo_row:
+        raise HTTPException(status_code=404, detail="Cargo entry not found")
 
-    # Decrement cargo
-    new_qty = cargo_qty - req.quantity
+    if cargo_row.quantity < req.quantity:
+        raise HTTPException(status_code=400, detail=f"Not enough in cargo (available: {cargo_row.quantity})")
+
+    item = db.query(Item).filter(Item.id == cargo_row.item_id).first()
+
+    # Decrement cargo or delete the row
+    new_qty = cargo_row.quantity - req.quantity
     if new_qty <= 0:
-        db.execute(
-            sa_delete(vehicle_cargo).where(
-                (vehicle_cargo.c.vehicle_id == vehicle_id)
-                & (vehicle_cargo.c.item_id == item_id)
-            )
-        )
+        db.delete(cargo_row)
     else:
-        db.execute(
-            sa_update(vehicle_cargo)
-            .where(
-                (vehicle_cargo.c.vehicle_id == vehicle_id)
-                & (vehicle_cargo.c.item_id == item_id)
-            )
-            .values(quantity=new_qty)
-        )
+        cargo_row.quantity = new_qty
 
-    # Increment character inventory
-    char_qty = db.execute(
-        select(character_items.c.quantity)
-        .where(
-            (character_items.c.character_id == req.character_id)
-            & (character_items.c.item_id == item_id)
-        )
-    ).scalar()
-
-    if char_qty is not None:
-        db.execute(
-            sa_update(character_items)
-            .where(
-                (character_items.c.character_id == req.character_id)
-                & (character_items.c.item_id == item_id)
-            )
-            .values(quantity=char_qty + req.quantity)
-        )
-    else:
-        db.execute(
-            insert(character_items).values(
-                character_id=req.character_id,
-                item_id=item_id,
-                quantity=req.quantity,
-            )
-        )
+    # Create new CharacterItem row
+    char_item = CharacterItem(
+        character_id=req.character_id,
+        item_id=cargo_row.item_id,
+        quantity=req.quantity,
+    )
+    db.add(char_item)
 
     db.commit()
-    item = db.query(Item).filter(Item.id == item_id).first()
     return {"message": f"{character.name} took {req.quantity} {item.name} from the cargo hold"}
 
 
-@router.post("/{vehicle_id}/cargo/{item_id}/return", response_model=dict)
+@router.post("/{vehicle_id}/cargo/{instance_id}/return", response_model=dict)
 async def return_to_cargo(
     campaign_id: int,
     vehicle_id: int,
-    item_id: int,
+    instance_id: int,
     req: VehicleCargoTakeRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -546,63 +496,36 @@ async def return_to_cargo(
     if not character or character.campaign_id != campaign_id:
         raise HTTPException(status_code=400, detail="Character not in this campaign")
 
-    # Check character inventory
-    char_qty = db.execute(
-        select(character_items.c.quantity)
-        .where(
-            (character_items.c.character_id == req.character_id)
-            & (character_items.c.item_id == item_id)
-        )
-    ).scalar()
-    if char_qty is None or char_qty < req.quantity:
-        raise HTTPException(status_code=400, detail=f"Character doesn't have enough (has: {char_qty or 0})")
+    # Look up the CharacterItem by instance_id from request body
+    if req.instance_id is None:
+        raise HTTPException(status_code=400, detail="instance_id is required to identify the character item")
 
-    # Decrement character inventory
-    new_qty = char_qty - req.quantity
+    char_item = db.query(CharacterItem).filter(
+        CharacterItem.id == req.instance_id,
+        CharacterItem.character_id == req.character_id,
+    ).first()
+    if not char_item:
+        raise HTTPException(status_code=404, detail="Character item not found")
+
+    if char_item.quantity < req.quantity:
+        raise HTTPException(status_code=400, detail=f"Character doesn't have enough (has: {char_item.quantity})")
+
+    item = db.query(Item).filter(Item.id == char_item.item_id).first()
+
+    # Decrement character inventory or delete the row
+    new_qty = char_item.quantity - req.quantity
     if new_qty <= 0:
-        db.execute(
-            sa_delete(character_items).where(
-                (character_items.c.character_id == req.character_id)
-                & (character_items.c.item_id == item_id)
-            )
-        )
+        db.delete(char_item)
     else:
-        db.execute(
-            sa_update(character_items)
-            .where(
-                (character_items.c.character_id == req.character_id)
-                & (character_items.c.item_id == item_id)
-            )
-            .values(quantity=new_qty)
-        )
+        char_item.quantity = new_qty
 
-    # Increment cargo
-    cargo_qty = db.execute(
-        select(vehicle_cargo.c.quantity)
-        .where(
-            (vehicle_cargo.c.vehicle_id == vehicle_id)
-            & (vehicle_cargo.c.item_id == item_id)
-        )
-    ).scalar()
-
-    if cargo_qty is not None:
-        db.execute(
-            sa_update(vehicle_cargo)
-            .where(
-                (vehicle_cargo.c.vehicle_id == vehicle_id)
-                & (vehicle_cargo.c.item_id == item_id)
-            )
-            .values(quantity=cargo_qty + req.quantity)
-        )
-    else:
-        db.execute(
-            insert(vehicle_cargo).values(
-                vehicle_id=vehicle_id,
-                item_id=item_id,
-                quantity=req.quantity,
-            )
-        )
+    # Create new VehicleCargo row
+    cargo_row = VehicleCargo(
+        vehicle_id=vehicle_id,
+        item_id=char_item.item_id,
+        quantity=req.quantity,
+    )
+    db.add(cargo_row)
 
     db.commit()
-    item = db.query(Item).filter(Item.id == item_id).first()
     return {"message": f"{character.name} stored {req.quantity} {item.name} in the cargo hold"}

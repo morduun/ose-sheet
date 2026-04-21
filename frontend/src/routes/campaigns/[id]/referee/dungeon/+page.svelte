@@ -8,8 +8,11 @@
   import { get } from 'svelte/store';
   import PageWrapper from '$lib/components/PageWrapper.svelte';
   import DiceOverlay from '$lib/components/shared/DiceOverlay.svelte';
+  import { createDungeonTracker, TORCH_LIFE, LANTERN_LIFE, TURNS_PER_HOUR } from '$lib/dungeon-tracker.js';
 
   const campaignId = $page.params.id;
+  const tracker = createDungeonTracker(campaignId);
+  const trackerState = tracker.state;
 
   let campaign = null;
   let loading = true;
@@ -19,36 +22,27 @@
   // Dice rolling
   let rollDice = null;
 
-  // --- Dungeon tracker state (independent lets) ---
-  let currentTurn = 0;
-  let torches = [];
-  let lanterns = [];
-  let rationsTotal = 0;
-  let rationsConsumed = 0;
-  let customTimers = [];
-  let notes = '';
-  let history = [];
+  // UI-only state
   let eventAlerts = [];
-
-  // UI state
   let confirmReset = false;
   let historyOpen = false;
   let turnPage = 0;
-  let nextId = 1;
-
-  // Turn note
   let turnNote = '';
-
-  // Custom timer add form
   let newTimerName = '';
   let newTimerDuration = '';
 
-  const TORCH_LIFE = 6;
-  const LANTERN_LIFE = 24;
-  const TURNS_PER_HOUR = 6;
   const TURNS_PER_PAGE = 24;
 
-  // --- Derived values ---
+  // --- Derived values from tracker store ---
+  $: currentTurn = $trackerState.currentTurn;
+  $: torches = $trackerState.torches;
+  $: lanterns = $trackerState.lanterns;
+  $: rationsTotal = $trackerState.rationsTotal;
+  $: rationsConsumed = $trackerState.rationsConsumed;
+  $: customTimers = $trackerState.customTimers;
+  $: notes = $trackerState.notes;
+  $: history = $trackerState.history;
+
   $: turnInHour = currentTurn > 0 ? ((currentTurn - 1) % TURNS_PER_HOUR) + 1 : 0;
   $: hourNumber = currentTurn > 0 ? Math.floor((currentTurn - 1) / TURNS_PER_HOUR) + 1 : 0;
   $: rationsRemaining = rationsTotal - rationsConsumed;
@@ -59,7 +53,6 @@
   // Turn grid
   $: totalPages = currentTurn > 0 ? Math.max(1, Math.ceil(currentTurn / TURNS_PER_PAGE)) : 1;
   $: {
-    // Auto-advance page when current turn passes the displayed range
     if (currentTurn > 0) {
       const neededPage = Math.ceil(currentTurn / TURNS_PER_PAGE) - 1;
       if (neededPage > turnPage) turnPage = neededPage;
@@ -86,174 +79,24 @@
   $: isGM = campaign && userId && campaign.gm_id === userId;
   $: if (browser && campaign && !isGM) goto(`/campaigns/${campaignId}`);
 
-  // --- localStorage persistence ---
-  const storageKey = `dungeon_tracker_${campaignId}`;
-
-  function loadState() {
-    try {
-      const raw = localStorage.getItem(storageKey);
-      if (!raw) return;
-      const s = JSON.parse(raw);
-      currentTurn = s.currentTurn ?? 0;
-      torches = s.torches ?? [];
-      lanterns = s.lanterns ?? [];
-      rationsTotal = s.rationsTotal ?? 0;
-      rationsConsumed = s.rationsConsumed ?? 0;
-      customTimers = s.customTimers ?? [];
-      notes = s.notes ?? '';
-      history = s.history ?? [];
-      nextId = s.nextId ?? 1;
-    } catch {
-      // defaults are fine
-    }
-  }
-
-  function saveState() {
-    try {
-      localStorage.setItem(storageKey, JSON.stringify({
-        currentTurn,
-        torches,
-        lanterns,
-        rationsTotal,
-        rationsConsumed,
-        customTimers,
-        notes,
-        history,
-        nextId,
-      }));
-    } catch {
-      // storage full — silently fail
-    }
-  }
-
-  // --- Core logic ---
+  // --- Actions (delegate to tracker) ---
 
   function advanceTurn() {
-    currentTurn += 1;
-    const events = [];
-
-    // Add GM's turn note if provided
-    if (turnNote.trim()) {
-      events.push({ type: 'note', text: turnNote.trim() });
-      turnNote = '';
-    }
-
-    // Decrement all active resources
-    torches = torches.map(t => ({ ...t, remaining: t.remaining - 1 }));
-    lanterns = lanterns.map(l => ({ ...l, remaining: l.remaining - 1 }));
-    customTimers = customTimers.map(t => ({ ...t, remaining: t.remaining - 1 }));
-
-    // Check scheduled events
-    if (currentTurn % 2 === 0) {
-      events.push({ type: 'wandering', text: 'Wandering Monster Check' });
-    }
-    if (currentTurn % TURNS_PER_HOUR === 0) {
-      events.push({ type: 'rest', text: 'Rest Required' });
-    }
-
-    // Check expired torches
-    const expiredTorches = torches.filter(t => t.remaining <= 0);
-    if (expiredTorches.length > 0) {
-      events.push({ type: 'torch_expired', text: `${expiredTorches.length} torch(es) burned out` });
-      torches = torches.filter(t => t.remaining > 0);
-    }
-
-    // Check expired lanterns — mark out but don't remove (can refill)
-    const expiredLanterns = lanterns.filter(l => l.remaining <= 0 && !l.out);
-    if (expiredLanterns.length > 0) {
-      events.push({ type: 'lantern_expired', text: `${expiredLanterns.length} lantern(s) out of oil` });
-      lanterns = lanterns.map(l => l.remaining <= 0 ? { ...l, out: true } : l);
-    }
-
-    // Check expired custom timers
-    const expiredTimers = customTimers.filter(t => t.remaining <= 0);
-    for (const t of expiredTimers) {
-      events.push({ type: 'timer_expired', text: `${t.name} expired` });
-    }
-    customTimers = customTimers.filter(t => t.remaining > 0);
-
-    // Darkness warning
-    const activeLights = torches.filter(t => t.remaining > 0).length +
-                         lanterns.filter(l => l.remaining > 0).length;
-    if (activeLights === 0 && (torches.length > 0 || lanterns.length > 0 || expiredTorches.length > 0 || expiredLanterns.length > 0)) {
-      events.push({ type: 'darkness', text: 'No active light sources!' });
-    }
-
-    // Push to history
-    history = [...history, { turn: currentTurn, events: events.map(e => e.text) }];
+    const events = tracker.advanceTurn(turnNote);
+    turnNote = '';
     eventAlerts = events;
-    saveState();
   }
 
   function undoTurn() {
-    if (currentTurn <= 0) return;
-
-    // Re-increment remaining on all active resources
-    torches = torches.map(t => ({ ...t, remaining: t.remaining + 1 }));
-    lanterns = lanterns.map(l => {
-      if (l.out && l.remaining <= 0) {
-        // Was just marked out — restore it
-        return { ...l, remaining: 1, out: false };
-      }
-      return { ...l, remaining: l.remaining + 1 };
-    });
-    customTimers = customTimers.map(t => ({ ...t, remaining: t.remaining + 1 }));
-
-    currentTurn -= 1;
-    // Pop last history entry
-    history = history.filter(h => h.turn <= currentTurn);
+    tracker.undoTurn();
     eventAlerts = [];
-    saveState();
   }
 
   function resetTracker() {
-    currentTurn = 0;
-    torches = [];
-    lanterns = [];
-    rationsTotal = 0;
-    rationsConsumed = 0;
-    customTimers = [];
-    notes = '';
-    history = [];
+    tracker.resetTracker();
     eventAlerts = [];
-    nextId = 1;
     turnPage = 0;
     confirmReset = false;
-    saveState();
-  }
-
-  // --- Resource management ---
-
-  function lightTorch() {
-    torches = [...torches, { id: nextId++, lit_at_turn: currentTurn, remaining: TORCH_LIFE }];
-    saveState();
-  }
-
-  function addLantern() {
-    lanterns = [...lanterns, { id: nextId++, lit_at_turn: currentTurn, remaining: LANTERN_LIFE, out: false }];
-    saveState();
-  }
-
-  function refillLantern(id) {
-    lanterns = lanterns.map(l => l.id === id ? { ...l, remaining: LANTERN_LIFE, out: false } : l);
-    saveState();
-  }
-
-  function removeLantern(id) {
-    lanterns = lanterns.filter(l => l.id !== id);
-    saveState();
-  }
-
-  function consumeRation() {
-    if (rationsRemaining <= 0) return;
-    rationsConsumed += 1;
-    saveState();
-  }
-
-  function adjustRations(delta) {
-    rationsTotal = Math.max(0, rationsTotal + delta);
-    if (rationsConsumed > rationsTotal) rationsConsumed = rationsTotal;
-    saveState();
   }
 
   function addCustomTimer() {
@@ -261,21 +104,14 @@
     if (!name) return;
     const dur = parseInt(newTimerDuration);
     if (isNaN(dur) || dur <= 0) return;
-    customTimers = [...customTimers, { id: nextId++, name, remaining: dur }];
+    tracker.addCustomTimer(name, dur);
     newTimerName = '';
     newTimerDuration = '';
-    saveState();
-  }
-
-  function removeTimer(id) {
-    customTimers = customTimers.filter(t => t.id !== id);
-    saveState();
   }
 
   async function rollTimerDuration() {
     if (!rollDice) return;
     const notation = newTimerDuration.trim() || '1d6';
-    // Only roll if it looks like dice notation
     if (!/^\d*d\d+/i.test(notation)) return;
     await rollDice(notation, (total) => {
       newTimerDuration = String(total);
@@ -297,14 +133,13 @@
     eventAlerts = [];
   }
 
-  function handleNotesInput() {
-    saveState();
+  function handleNotesInput(e) {
+    tracker.setNotes(e.target.value);
   }
 
   // --- Lifecycle ---
   onMount(async () => {
     userId = getUserId();
-    loadState();
     try {
       campaign = await api.get(`/campaigns/${campaignId}`);
     } catch (e) {
@@ -472,7 +307,7 @@
           <h3 class="section-title mb-0 border-none text-base">Torches</h3>
           <div class="flex items-center gap-2">
             <span class="text-xs text-ink-faint">{activeTorches.length} active</span>
-            <button class="btn text-xs" on:click={lightTorch}>+ Light Torch</button>
+            <button class="btn text-xs" on:click={tracker.addTorch}>+ Light Torch</button>
           </div>
         </div>
         {#if torches.length === 0}
@@ -501,7 +336,7 @@
           <h3 class="section-title mb-0 border-none text-base">Lanterns</h3>
           <div class="flex items-center gap-2">
             <span class="text-xs text-ink-faint">{activeLanterns.length} active</span>
-            <button class="btn text-xs" on:click={addLantern}>+ Light Lantern</button>
+            <button class="btn text-xs" on:click={tracker.addLantern}>+ Light Lantern</button>
           </div>
         </div>
         {#if lanterns.length === 0}
@@ -520,10 +355,10 @@
                   ></div>
                 </div>
                 <span class="text-xs text-ink-faint w-12 text-right">{Math.max(0, lantern.remaining)}/{LANTERN_LIFE}</span>
-                <button class="btn-ghost text-xs px-1" on:click={() => refillLantern(lantern.id)} title="Refill with oil flask">Refill</button>
+                <button class="btn-ghost text-xs px-1" on:click={() => tracker.refillLantern(lantern.id)} title="Refill with oil flask">Refill</button>
                 <!-- svelte-ignore a11y-click-events-have-key-events -->
                 <!-- svelte-ignore a11y-no-static-element-interactions -->
-                <span class="cursor-pointer text-ink-faint hover:text-red-700 text-sm" on:click={() => removeLantern(lantern.id)} title="Remove lantern">&times;</span>
+                <span class="cursor-pointer text-ink-faint hover:text-red-700 text-sm" on:click={() => tracker.removeLantern(lantern.id)} title="Remove lantern">&times;</span>
               </div>
             {/each}
           </div>
@@ -543,13 +378,13 @@
           <div class="flex flex-col gap-1">
             <div class="flex items-center gap-1">
               <span class="text-xs text-ink-faint w-12">Supply:</span>
-              <button class="btn-ghost text-xs px-1.5" on:click={() => adjustRations(-1)} disabled={rationsTotal <= 0}>-</button>
+              <button class="btn-ghost text-xs px-1.5" on:click={() => tracker.adjustRations(-1)} disabled={rationsTotal <= 0}>-</button>
               <span class="text-sm font-mono w-6 text-center">{rationsTotal}</span>
-              <button class="btn-ghost text-xs px-1.5" on:click={() => adjustRations(1)}>+</button>
+              <button class="btn-ghost text-xs px-1.5" on:click={() => tracker.adjustRations(1)}>+</button>
             </div>
             <button
               class="btn text-xs"
-              on:click={consumeRation}
+              on:click={tracker.consumeRation}
               disabled={rationsRemaining <= 0}
             >Consume Ration</button>
           </div>
@@ -581,7 +416,7 @@
                 <span class="text-xs text-ink-faint w-10 text-right">{timer.remaining}t</span>
                 <!-- svelte-ignore a11y-click-events-have-key-events -->
                 <!-- svelte-ignore a11y-no-static-element-interactions -->
-                <span class="cursor-pointer text-ink-faint hover:text-red-700 text-sm" on:click={() => removeTimer(timer.id)} title="Remove timer">&times;</span>
+                <span class="cursor-pointer text-ink-faint hover:text-red-700 text-sm" on:click={() => tracker.removeCustomTimer(timer.id)} title="Remove timer">&times;</span>
               </div>
             {/each}
           </div>
@@ -617,7 +452,7 @@
       <h3 class="section-title mb-2 border-none text-base">Notes</h3>
       <textarea
         class="input w-full h-24 text-sm"
-        bind:value={notes}
+        value={notes}
         on:input={handleNotesInput}
         placeholder="Session notes..."
       ></textarea>

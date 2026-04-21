@@ -51,14 +51,6 @@ class Character(Base):
     # Format: {"thac0": 19, "attack_bonus": 0}
     combat_stats = Column(JSON, nullable=True)
 
-    # Currency
-    copper = Column(Integer, default=0)
-    silver = Column(Integer, default=0)
-    electrum = Column(Integer, default=0)
-    gold = Column(Integer, default=0)
-    platinum = Column(Integer, default=0)
-    coin_container_id = Column(Integer, ForeignKey("items.id"), nullable=True)  # Which container holds coins
-
     # Character State
     status = Column(String, default="active", nullable=False, server_default="active")  # "active", "independent", "fallen"
     is_alive = Column(Boolean, default=True)
@@ -66,6 +58,9 @@ class Character(Base):
     # Portraits
     portrait_filename = Column(String, nullable=True)
     token_filename = Column(String, nullable=True)
+
+    # Secondary skill (optional rule, OSE p25)
+    secondary_skill = Column(String, nullable=True)
 
     # Additional Notes
     notes = Column(String, nullable=True)
@@ -82,11 +77,11 @@ class Character(Base):
     # Self-referential retainer relationships
     master = relationship("Character", remote_side=[id], back_populates="retainers", foreign_keys=[master_id])
     retainers = relationship("Character", back_populates="master", foreign_keys=[master_id], cascade="all, delete-orphan", lazy="noload")
-    items = relationship(
-        "Item",
-        secondary="character_items",
-        back_populates="characters",
-        foreign_keys="[character_items.c.character_id, character_items.c.item_id]",
+    inventory = relationship(
+        "CharacterItem",
+        back_populates="character",
+        cascade="all, delete-orphan",
+        foreign_keys="CharacterItem.character_id",
     )
     spells = relationship(
         "Spell",

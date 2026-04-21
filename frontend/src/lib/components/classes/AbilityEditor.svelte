@@ -19,6 +19,29 @@
     { value: 'modifier', label: 'Modifier' },
     { value: 'skill', label: 'Skill (Rollable)' },
     { value: 'special_attack', label: 'Special Attack' },
+    { value: 'combat_style', label: 'Combat Style' },
+    { value: 'save_ability', label: 'Save Ability' },
+  ];
+
+  const COMBAT_STYLES = [
+    { value: 'dual_best_of_two', label: 'Dual Wield — Best of Two Damage' },
+  ];
+
+  const SAVE_TRIGGERS = [
+    { value: 'lethal_blow', label: 'Lethal Blow (0 HP or below)' },
+  ];
+
+  const SAVE_TYPES = [
+    { value: 'death', label: 'Death / Poison' },
+    { value: 'wands', label: 'Wands' },
+    { value: 'paralyze', label: 'Paralysis / Petrify' },
+    { value: 'breath', label: 'Breath Attacks' },
+    { value: 'spells', label: 'Spells / Rods / Staves' },
+  ];
+
+  const SAVE_FREQUENCIES = [
+    { value: 'once_per_combat', label: 'Once per combat' },
+    { value: 'once_per_day', label: 'Once per day' },
   ];
 
   const MODIFIER_TARGETS = [
@@ -103,6 +126,21 @@
         attacks: attacks.length > 0 ? attacks : [makeDefaultAttack()],
       };
     }
+    if (meta.type === 'combat_style') {
+      return {
+        ...base, metaType: 'combat_style',
+        combatStyle: meta.style || 'dual_best_of_two',
+      };
+    }
+    if (meta.type === 'save_ability') {
+      return {
+        ...base, metaType: 'save_ability',
+        saveTrigger: meta.trigger || 'lethal_blow',
+        saveType: meta.save_type || 'death',
+        saveFrequency: meta.frequency || 'once_per_combat',
+        saveSuccessEffect: meta.success_effect || '',
+      };
+    }
     return { ...base, metaType: 'none' };
   }
 
@@ -169,6 +207,19 @@
         if (attacks.length > 0) {
           obj[key] = { type: 'special_attack', attacks };
         }
+      } else if (e.metaType === 'combat_style') {
+        obj[key] = {
+          type: 'combat_style',
+          style: e.combatStyle,
+        };
+      } else if (e.metaType === 'save_ability') {
+        obj[key] = {
+          type: 'save_ability',
+          trigger: e.saveTrigger,
+          save_type: e.saveType,
+          frequency: e.saveFrequency,
+          success_effect: e.saveSuccessEffect || undefined,
+        };
       }
       // 'none' → no metadata entry
     }
@@ -194,6 +245,8 @@
       name: '', description: '', minLevel: null, metaType: 'none',
       modTarget: 'ac', modValues: fill(maxLevel, 0),
       rolls: [], attacks: [],
+      combatStyle: 'dual_best_of_two',
+      saveTrigger: 'lethal_blow', saveType: 'death', saveFrequency: 'once_per_combat', saveSuccessEffect: '',
     }];
   }
 
@@ -429,6 +482,56 @@
           <button type="button" class="btn-ghost text-xs mt-1" on:click={() => addAttack(entry)}>
             + Add Attack
           </button>
+        </div>
+      {/if}
+
+      <!-- Combat Style fields -->
+      {#if entry.metaType === 'combat_style'}
+        <div class="border border-parchment-300 rounded p-2 bg-parchment-50">
+          <div class="flex items-center gap-2">
+            <span class="text-xs text-ink-faint">Style:</span>
+            <select class="input flex-1 text-sm" bind:value={entry.combatStyle}>
+              {#each COMBAT_STYLES as cs}
+                <option value={cs.value}>{cs.label}</option>
+              {/each}
+            </select>
+          </div>
+        </div>
+      {/if}
+
+      <!-- Save Ability fields -->
+      {#if entry.metaType === 'save_ability'}
+        <div class="border border-parchment-300 rounded p-2 bg-parchment-50 space-y-2">
+          <div class="grid grid-cols-3 gap-2">
+            <div>
+              <span class="text-xs text-ink-faint">Trigger:</span>
+              <select class="input w-full text-sm" bind:value={entry.saveTrigger}>
+                {#each SAVE_TRIGGERS as t}
+                  <option value={t.value}>{t.label}</option>
+                {/each}
+              </select>
+            </div>
+            <div>
+              <span class="text-xs text-ink-faint">Save Type:</span>
+              <select class="input w-full text-sm" bind:value={entry.saveType}>
+                {#each SAVE_TYPES as t}
+                  <option value={t.value}>{t.label}</option>
+                {/each}
+              </select>
+            </div>
+            <div>
+              <span class="text-xs text-ink-faint">Frequency:</span>
+              <select class="input w-full text-sm" bind:value={entry.saveFrequency}>
+                {#each SAVE_FREQUENCIES as f}
+                  <option value={f.value}>{f.label}</option>
+                {/each}
+              </select>
+            </div>
+          </div>
+          <div>
+            <span class="text-xs text-ink-faint">On Success:</span>
+            <input type="text" class="input w-full text-sm" bind:value={entry.saveSuccessEffect} placeholder="e.g. Negate the damage entirely" />
+          </div>
         </div>
       {/if}
     </div>

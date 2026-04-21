@@ -1,17 +1,22 @@
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, JSON, Table, Boolean
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, JSON, Boolean
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.database import Base
 
 
-# Association table for vehicle cargo
-vehicle_cargo = Table(
-    "vehicle_cargo",
-    Base.metadata,
-    Column("vehicle_id", Integer, ForeignKey("campaign_vehicles.id", ondelete="CASCADE"), primary_key=True),
-    Column("item_id", Integer, ForeignKey("items.id", ondelete="CASCADE"), primary_key=True),
-    Column("quantity", Integer, default=1),
-)
+class VehicleCargo(Base):
+    """Instance of an item in a vehicle's cargo hold."""
+
+    __tablename__ = "vehicle_cargo"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    vehicle_id = Column(Integer, ForeignKey("campaign_vehicles.id", ondelete="CASCADE"), nullable=False, index=True)
+    item_id = Column(Integer, ForeignKey("items.id", ondelete="CASCADE"), nullable=False)
+    quantity = Column(Integer, default=1)
+
+    # Relationships
+    vehicle = relationship("Vehicle", back_populates="cargo_items")
+    item = relationship("Item")
 
 
 class VehicleType(Base):
@@ -67,3 +72,4 @@ class Vehicle(Base):
     # Relationships
     campaign = relationship("Campaign", back_populates="vehicles")
     type_ref = relationship("VehicleType")
+    cargo_items = relationship("VehicleCargo", back_populates="vehicle", cascade="all, delete-orphan")

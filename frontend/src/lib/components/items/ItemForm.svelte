@@ -1,4 +1,6 @@
 <script>
+  import { onMount } from 'svelte';
+  import { api } from '$lib/api.js';
   import { ITEM_METADATA_TEMPLATES, METADATA_FIELD_REFERENCE } from '$lib/item-metadata.js';
 
   /** Initial item data for edit mode (null for create) */
@@ -59,15 +61,51 @@
 
   let abilityEntries = initAbilities();
 
+  // --- Scroll spells (structured editor) ---
+  const SCROLL_CLASSES = [
+    { value: 'magic-user', label: 'Magic-User' },
+    { value: 'cleric', label: 'Cleric' },
+    { value: 'druid', label: 'Druid' },
+    { value: 'illusionist', label: 'Illusionist' },
+  ];
+  let allSpells = [];
+  let scrollSpellEntries = (initialData?.item_metadata?.scroll_spells || []).map(s => ({ ...s }));
+
+  onMount(async () => {
+    try { allSpells = await api.get('/spells/?limit=500'); } catch { allSpells = []; }
+  });
+
+  function addScrollSpell() {
+    scrollSpellEntries = [...scrollSpellEntries, { spell_id: null, name: '', level: 0, spell_class: 'magic-user' }];
+  }
+  function removeScrollSpell(index) {
+    scrollSpellEntries = scrollSpellEntries.filter((_, i) => i !== index);
+  }
+  function onScrollSpellSelect(entry, spellId) {
+    const spell = allSpells.find(s => s.id === spellId);
+    if (spell) {
+      entry.spell_id = spell.id;
+      entry.name = spell.name;
+      entry.level = spell.level;
+      entry.spell_class = spell.spell_class;
+    }
+    scrollSpellEntries = scrollSpellEntries;
+  }
+
   // Strip fields owned by structured editors from metadataJson on init
   {
-    let needsClean = abilityEntries.length > 0 || fillable || capacity;
+    let needsClean = abilityEntries.length > 0 || fillable || capacity || scrollSpellEntries.length > 0;
     if (needsClean && metadataJson.trim()) {
       try {
         const parsed = JSON.parse(metadataJson);
         delete parsed.ability_metadata;
         delete parsed.fillable;
         delete parsed.capacity;
+        delete parsed.scroll_spells;
+        // Also clean stale single-spell fields
+        delete parsed.spell_name;
+        delete parsed.spell_level;
+        delete parsed.spell_class;
         metadataJson = Object.keys(parsed).length > 0 ? JSON.stringify(parsed, null, 2) : '';
       } catch { /* leave as-is */ }
     }
@@ -203,6 +241,17 @@
       } else {
         delete finalMeta.capacity;
       }
+      // Scroll spells
+      const validScrollSpells = scrollSpellEntries.filter(s => s.spell_id != null);
+      if (validScrollSpells.length > 0) {
+        finalMeta.scroll_spells = validScrollSpells;
+      } else {
+        delete finalMeta.scroll_spells;
+      }
+      // Clean stale single-spell fields
+      delete finalMeta.spell_name;
+      delete finalMeta.spell_level;
+      delete finalMeta.spell_class;
       // If finalMeta is empty, set to null
       if (Object.keys(finalMeta).length === 0) finalMeta = null;
 
@@ -442,6 +491,49 @@
         <p class="text-xs text-ink-faint">No item abilities. Click "+ Add Ability" to add modifiers, skills, or effects.</p>
       {/if}
     </div>
+
+    <!-- Scroll Spells (structured editor) -->
+    {#if itemType === 'scroll'}
+      <div>
+        <div class="flex items-center justify-between mb-1">
+          <label class="block text-sm text-ink">Scroll Spells <span class="text-ink-faint">(leave empty for protection scrolls or mundane text)</span></label>
+          <button type="button" class="btn-ghost text-xs" on:click={addScrollSpell}>+ Add Spell</button>
+        </div>
+        {#if scrollSpellEntries.length > 0}
+          <div class="space-y-2">
+            {#each scrollSpellEntries as entry, i}
+              <div class="flex gap-2 items-end border border-parchment-200 rounded p-2">
+                <div class="w-28">
+                  <label class="text-xs text-ink-faint">Class</label>
+                  <select class="input w-full text-sm" bind:value={entry.spell_class}
+                    on:change={() => { entry.spell_id = null; entry.name = ''; entry.level = 0; scrollSpellEntries = scrollSpellEntries; }}>
+                    {#each SCROLL_CLASSES as sc}
+                      <option value={sc.value}>{sc.label}</option>
+                    {/each}
+                  </select>
+                </div>
+                <div class="flex-1">
+                  <label class="text-xs text-ink-faint">Spell</label>
+                  <select
+                    class="input w-full text-sm"
+                    value={entry.spell_id}
+                    on:change={(e) => onScrollSpellSelect(entry, parseInt(e.target.value))}
+                  >
+                    <option value={null}>Select spell...</option>
+                    {#each allSpells.filter(s => s.spell_class === entry.spell_class).sort((a, b) => a.level - b.level || a.name.localeCompare(b.name)) as spell}
+                      <option value={spell.id}>L{spell.level} — {spell.name}</option>
+                    {/each}
+                  </select>
+                </div>
+                <button type="button" class="btn-danger text-xs px-1.5 py-0.5" on:click={() => removeScrollSpell(i)}>X</button>
+              </div>
+            {/each}
+          </div>
+        {:else}
+          <p class="text-xs text-ink-faint">No spells. Use the player description for protection scroll effects or mundane text content.</p>
+        {/if}
+      </div>
+    {/if}
 
     <div>
       <label class="block text-sm text-ink mb-1" for="item-metadata">Item Metadata <span class="text-ink-faint">(JSON — damage_dice, ac, range, etc.)</span></label>

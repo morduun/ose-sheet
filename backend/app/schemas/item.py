@@ -94,11 +94,12 @@ class CharacterItemAssignment(BaseModel):
 class CharacterInventoryEntry(BaseModel):
     """An item in a character's inventory with its quantity."""
 
+    instance_id: int  # character_items.id
     item: ItemPublic
     quantity: int
     slot: str | None = None  # null = carried; "armor" | "shield" | "main-hand" | "off-hand"
     identified: bool = False
-    container_item_id: int | None = None  # items.id of the container holding this item
+    container_id: int | None = None  # character_items.id of the container instance
     dropped: bool = False  # True if this container has been dropped
     stashed: bool = False  # True if stored at home base (not carried)
     state: dict | None = None  # Per-character item state (fill, contents, etc.)
@@ -106,11 +107,12 @@ class CharacterInventoryEntry(BaseModel):
 
 class CharacterInventoryEntryGM(BaseModel):
     """An item in a character's inventory (GM view with secrets control)."""
+    instance_id: int  # character_items.id
     item: Item  # Full Item schema (includes secrets, description_gm)
     quantity: int
     slot: str | None = None
     identified: bool = False
-    container_item_id: int | None = None
+    container_id: int | None = None
     dropped: bool = False
     stashed: bool = False
     state: dict | None = None
@@ -119,8 +121,11 @@ class CharacterInventoryEntryGM(BaseModel):
 class StashEntry(BaseModel):
     """An item in the campaign party stash."""
 
+    instance_id: int  # campaign_stash.id
     item: ItemPublic
     quantity: int
+    container_id: int | None = None
+    state: dict | None = None
 
 
 class StashAddRequest(BaseModel):
@@ -128,6 +133,7 @@ class StashAddRequest(BaseModel):
 
     item_id: int
     quantity: int = 1
+    state: dict | None = None  # Per-instance metadata (treasure value, material, description)
 
 
 class StashTakeRequest(BaseModel):
@@ -140,6 +146,7 @@ class StashTakeRequest(BaseModel):
 class StashReturnRequest(BaseModel):
     """Request to return an item from a character to the stash."""
 
+    instance_id: int  # character_items.id of the item instance to return
     character_id: int
     quantity: int = 1
 
@@ -148,3 +155,16 @@ class StashQuantityUpdate(BaseModel):
     """Update the quantity of an item in the stash."""
 
     quantity: int = Field(..., gt=0)
+
+
+class SplitRequest(BaseModel):
+    """Request to split a stack."""
+
+    quantity: int = Field(..., gt=0)
+
+
+class MergeRequest(BaseModel):
+    """Request to merge two stacks of the same item."""
+
+    source_id: int
+    target_id: int

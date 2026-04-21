@@ -16,7 +16,7 @@ from app.schemas.specialist import (
     SpecialistSummary,
     PaydayResponse,
 )
-from app.services.mercenaries import deduct_from_wealth
+from app.services.currency import get_coin_totals, spend_coins
 from app.services.permissions import can_view_character, can_edit_character
 
 
@@ -286,18 +286,77 @@ async def payday(
         if stype:
             total_cost += stype.wage
 
-    new_coins = deduct_from_wealth(character, total_cost)
-    if new_coins is None:
+    # Convert gp cost to cp for denomination-aware spending
+    cost_cp = round(total_cost * 100)
+    totals = get_coin_totals(character_id, db)
+    total_wealth_cp = (
+        totals["pp"] * 500
+        + totals["gp"] * 100
+        + totals["ep"] * 50
+        + totals["sp"] * 10
+        + totals["cp"]
+    )
+    if total_wealth_cp < cost_cp:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Insufficient funds. Need {total_cost} gp but don't have enough wealth.",
         )
 
-    character.platinum = new_coins["platinum"]
-    character.gold = new_coins["gold"]
-    character.electrum = new_coins["electrum"]
-    character.silver = new_coins["silver"]
-    character.copper = new_coins["copper"]
+    # Spend in gold first, then smaller denominations
+    remaining = cost_cp
+    spend = {"cp": 0, "sp": 0, "ep": 0, "gp": 0, "pp": 0}
+
+    # Whole gold coins
+    use_gp = min(totals["gp"], remaining // 100)
+    spend["gp"] = use_gp
+    remaining -= use_gp * 100
+
+    # Whole electrum
+    if remaining > 0:
+        use_ep = min(totals["ep"], remaining // 50)
+        spend["ep"] = use_ep
+        remaining -= use_ep * 50
+
+    # Whole silver
+    if remaining > 0:
+        use_sp = min(totals["sp"], remaining // 10)
+        spend["sp"] = use_sp
+        remaining -= use_sp * 10
+
+    # Copper
+    if remaining > 0:
+        use_cp = min(totals["cp"], remaining)
+        spend["cp"] = use_cp
+        remaining -= use_cp
+
+    # Break a gold coin if needed
+    if remaining > 0 and totals["gp"] > spend["gp"]:
+        spend["gp"] += 1
+        remaining = 0  # overpay — change is lost (matches OSE simplicity)
+
+    # Break electrum
+    if remaining > 0 and totals["ep"] > spend["ep"]:
+        spend["ep"] += 1
+        remaining = 0
+
+    # Break platinum
+    if remaining > 0 and totals["pp"] > 0:
+        spend["pp"] = 1
+        remaining = 0
+
+    if not spend_coins(character_id, spend, db):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Insufficient funds. Need {total_cost} gp but don't have enough wealth.",
+        )
     db.commit()
 
-    return PaydayResponse(cost_gp=total_cost, **new_coins)
+    new_totals = get_coin_totals(character_id, db)
+    return PaydayResponse(
+        cost_gp=total_cost,
+        platinum=new_totals["pp"],
+        gold=new_totals["gp"],
+        electrum=new_totals["ep"],
+        silver=new_totals["sp"],
+        copper=new_totals["cp"],
+    )

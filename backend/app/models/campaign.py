@@ -2,7 +2,6 @@ from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, Table
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.database import Base
-from app.models.item import campaign_stash
 import secrets
 
 
@@ -26,13 +25,6 @@ class Campaign(Base):
     gm_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     invite_code = Column(String, unique=True, index=True, nullable=False)
 
-    # Party treasury (coins in the shared stash)
-    stash_cp = Column(Integer, default=0, server_default="0")
-    stash_sp = Column(Integer, default=0, server_default="0")
-    stash_ep = Column(Integer, default=0, server_default="0")
-    stash_gp = Column(Integer, default=0, server_default="0")
-    stash_pp = Column(Integer, default=0, server_default="0")
-
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
@@ -49,11 +41,11 @@ class Campaign(Base):
     monsters = relationship("Monster", back_populates="campaign", cascade="all, delete-orphan")
     vehicles = relationship("Vehicle", back_populates="campaign", cascade="all, delete-orphan")
     dungeons = relationship("Dungeon", back_populates="campaign", cascade="all, delete-orphan")
+    hex_maps = relationship("HexMap", back_populates="campaign", cascade="all, delete-orphan")
     stash_items = relationship(
-        "Item",
-        secondary=campaign_stash,
-        backref="stash_campaigns",
-        foreign_keys=[campaign_stash.c.campaign_id, campaign_stash.c.item_id],
+        "StashItem",
+        back_populates="campaign",
+        cascade="all, delete-orphan",
     )
 
     def __init__(self, **kwargs):

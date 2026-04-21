@@ -151,12 +151,7 @@
     paying = true;
     try {
       const result = await api.post(`/characters/${character.id}/mercenaries/payday`);
-      character.platinum = result.platinum;
-      character.gold = result.gold;
-      character.electrum = result.electrum;
-      character.silver = result.silver;
-      character.copper = result.copper;
-      character = character;
+      character = character; // trigger reactivity for parent refresh
       alert(`Paid ${formatCost(result.cost_gp)} gp in mercenary wages.`);
     } catch (e) {
       alert(e.message || 'Failed to pay mercenaries');

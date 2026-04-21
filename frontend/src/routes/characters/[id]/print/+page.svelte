@@ -35,13 +35,10 @@
 
   const ordinals = ['1st', '2nd', '3rd', '4th', '5th', '6th'];
 
-  const coinLabels = [
-    { key: 'copper', abbr: 'CP' },
-    { key: 'silver', abbr: 'SP' },
-    { key: 'electrum', abbr: 'EP' },
-    { key: 'gold', abbr: 'GP' },
-    { key: 'platinum', abbr: 'PP' },
-  ];
+  const DENOM_KEYS = ['pp', 'gp', 'ep', 'sp', 'cp'];
+  const DENOM_LABELS = { pp: 'PP', gp: 'GP', ep: 'EP', sp: 'SP', cp: 'CP' };
+
+  let currencyTotals = { cp: 0, sp: 0, ep: 0, gp: 0, pp: 0 };
 
   $: className = character?.character_class?.name ?? character?.combat_stats?.monster_name ?? '';
   $: spellLists = character?.character_class?.class_data?.spell_lists ?? [];
@@ -92,22 +89,19 @@
 
   // --- Encumbrance (exclude dropped containers and their contents) ---
   $: droppedContainerIds = new Set(
-    inventory.filter(e => e.dropped && (e.item?.item_metadata?.capacity ?? 0) > 0).map(e => e.item.id)
+    inventory.filter(e => e.dropped && (e.item?.item_metadata?.capacity ?? 0) > 0).map(e => e.instance_id)
   );
-  $: totalWeight = inventory.reduce((sum, e) => {
+  $: totalEncumbrance = inventory.reduce((sum, e) => {
     if (e.dropped) return sum;
-    if (droppedContainerIds.has(e.container_item_id)) return sum;
-    const w = e.item?.item_metadata?.weight ?? 0;
-    return sum + w * (e.quantity ?? 1);
+    if (e.stashed) return sum;
+    if (droppedContainerIds.has(e.container_id)) return sum;
+    if (e.item?.item_type === 'currency') {
+      const s = e.state || {};
+      return sum + (s.cp || 0) + (s.sp || 0) + (s.ep || 0) + (s.gp || 0) + (s.pp || 0);
+    }
+    return sum + ((e.item?.weight ?? 0) * (e.quantity ?? 1));
   }, 0);
-  $: coinWeight = (
-    (character?.copper ?? 0) +
-    (character?.silver ?? 0) +
-    (character?.electrum ?? 0) +
-    (character?.gold ?? 0) +
-    (character?.platinum ?? 0)
-  );
-  $: totalEncumbrance = totalWeight + coinWeight;
+  $: coinWeight = DENOM_KEYS.reduce((sum, k) => sum + (currencyTotals[k] || 0), 0);
 
   // --- Movement formatting ---
   $: effectiveMovement = character?.combat_stats?.effective_movement ?? character?.movement_rate;
@@ -118,10 +112,10 @@
   // --- Container grouping ---
   $: containerEntries = inventory.filter(e => (e.item?.item_metadata?.capacity ?? 0) > 0);
   $: carriedItems = inventory.filter(e =>
-    !e.container_item_id && !(e.item?.item_metadata?.capacity > 0)
+    !e.container_id && !(e.item?.item_metadata?.capacity > 0)
   );
   $: containerGroups = containerEntries.map(c => {
-    const contents = inventory.filter(e => e.container_item_id === c.item.id);
+    const contents = inventory.filter(e => e.container_id === c.instance_id);
     const load = contents.reduce((sum, e) => sum + ((e.item?.weight ?? 0) * e.quantity), 0);
     return { entry: c, contents, load, capacity: c.item.item_metadata.capacity };
   });
@@ -130,7 +124,7 @@
   const FILL_LABELS = { full: 'Full', half: 'Half', empty: 'Empty' };
 
   // --- Currency ---
-  $: hasCoins = coinLabels.some(c => (character?.[c.key] ?? 0) > 0);
+  $: hasCoins = DENOM_KEYS.some(k => (currencyTotals[k] || 0) > 0);
 
   // --- Retainers / Mercenaries / Specialists ---
   $: retainers = character?.retainers ?? [];
@@ -169,7 +163,11 @@
   onMount(async () => {
     try {
       character = await api.get(`/characters/${characterId}`);
-      inventory = await api.get(`/characters/${characterId}/items`);
+      inventory = await api.get(`/characters/${characterId}/inventory`);
+      try {
+        const cdata = await api.get(`/characters/${characterId}/currency`);
+        currencyTotals = cdata.totals;
+      } catch { /* defaults */ }
       if (isCaster || (character.character_class?.class_data?.spell_lists?.length ?? 0) > 0) {
         try {
           spellData = await api.get(`/characters/${characterId}/spells`);
@@ -264,6 +262,7 @@
           <h1 class="font-serif text-4xl text-ink print:text-black">{character.name}</h1>
           <p class="text-ink-faint print:text-gray-500 mt-1">
             {character.character_class?.name ?? character.combat_stats?.monster_name ?? 'Unknown'} · Level {character.level} · {character.alignment ?? 'Neutral'}
+            {#if character.secondary_skill} · <span class="italic">{character.secondary_skill}</span>{/if}
             · XP: {character.xp ?? 0}
           </p>
         </div>
@@ -518,11 +517,11 @@
         <div>
           <h2 class="section-title print:text-black">Currency</h2>
           <div class="flex gap-6 text-sm">
-            {#each coinLabels as { key, abbr }}
-              {#if (character[key] ?? 0) > 0}
+            {#each DENOM_KEYS as k}
+              {#if (currencyTotals[k] || 0) > 0}
                 <div class="text-center">
-                  <div class="text-xs text-ink-faint print:text-gray-500 uppercase">{abbr}</div>
-                  <div class="font-medium text-ink print:text-black">{character[key]}</div>
+                  <div class="text-xs text-ink-faint print:text-gray-500 uppercase">{DENOM_LABELS[k]}</div>
+                  <div class="font-medium text-ink print:text-black">{currencyTotals[k]}</div>
                 </div>
               {/if}
             {/each}

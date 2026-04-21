@@ -3,13 +3,13 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import flag_modified
 
 from app.database import get_db
 from app.dependencies import get_current_user
-from sqlalchemy import select, update as sa_update, delete as sa_delete
 from app.models import User, Character, Item
 from app.models.animal import CharacterAnimal
-from app.models.item import character_items
+from app.models.item import CharacterItem
 from app.schemas.animal import (
     AnimalTypeInfo,
     AnimalCreate,
@@ -220,7 +220,7 @@ async def remove_animal(
 
 
 class AnimalLoadRequest(BaseModel):
-    item_id: int
+    instance_id: int  # CharacterItem.id to load onto the animal
     quantity: int = 1
 
 
@@ -251,18 +251,16 @@ async def load_item_to_animal(
     if load["container_capacity"] <= 0:
         raise HTTPException(status_code=400, detail="Animal has no pack or saddlebags equipped")
 
-    # Check character has the item
-    char_qty = db.execute(
-        select(character_items.c.quantity).where(
-            (character_items.c.character_id == character_id)
-            & (character_items.c.item_id == req.item_id)
-        )
-    ).scalar()
-    if char_qty is None or char_qty < req.quantity:
-        raise HTTPException(status_code=400, detail=f"Not enough in inventory (has: {char_qty or 0})")
+    # Check character has the item instance
+    ci = db.query(CharacterItem).filter(
+        CharacterItem.id == req.instance_id,
+        CharacterItem.character_id == character_id,
+    ).first()
+    if not ci or ci.quantity < req.quantity:
+        raise HTTPException(status_code=400, detail=f"Not enough in inventory (has: {ci.quantity if ci else 0})")
 
     # Check weight fits
-    item = db.query(Item).filter(Item.id == req.item_id).first()
+    item = db.query(Item).filter(Item.id == ci.item_id).first()
     if not item:
         raise HTTPException(status_code=404, detail="Item not found")
     item_weight = (item.weight or 0) * req.quantity
@@ -270,30 +268,19 @@ async def load_item_to_animal(
         raise HTTPException(status_code=400, detail="Too heavy for this animal's pack")
 
     # Remove from character
-    new_qty = char_qty - req.quantity
+    new_qty = ci.quantity - req.quantity
     if new_qty <= 0:
-        db.execute(
-            sa_delete(character_items).where(
-                (character_items.c.character_id == character_id)
-                & (character_items.c.item_id == req.item_id)
-            )
-        )
+        db.delete(ci)
     else:
-        db.execute(
-            sa_update(character_items).where(
-                (character_items.c.character_id == character_id)
-                & (character_items.c.item_id == req.item_id)
-            ).values(quantity=new_qty)
-        )
+        ci.quantity = new_qty
 
-    # Add to animal inventory
-    from sqlalchemy.orm.attributes import flag_modified
+    # Add to animal inventory (JSON array)
     inv = list(animal.inventory or [])
-    existing = next((e for e in inv if e["item_id"] == req.item_id), None)
+    existing = next((e for e in inv if e["item_id"] == item.id), None)
     if existing:
         existing["quantity"] = existing.get("quantity", 0) + req.quantity
     else:
-        inv.append({"item_id": req.item_id, "quantity": req.quantity, "name": item.name, "weight": item.weight or 0})
+        inv.append({"item_id": item.id, "quantity": req.quantity, "name": item.name, "weight": item.weight or 0})
     animal.inventory = inv
     flag_modified(animal, "inventory")
 
@@ -302,11 +289,16 @@ async def load_item_to_animal(
     return _animal_response(animal)
 
 
+class AnimalUnloadRequest(BaseModel):
+    item_id: int  # items.id (from animal JSON inventory)
+    quantity: int = 1
+
+
 @router.post("/{animal_id}/unload", response_model=AnimalResponse)
 async def unload_item_from_animal(
     character_id: int,
     animal_id: int,
-    req: AnimalLoadRequest,
+    req: AnimalUnloadRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -325,7 +317,6 @@ async def unload_item_from_animal(
         raise HTTPException(status_code=404, detail="Animal not found")
 
     # Check animal has the item
-    from sqlalchemy.orm.attributes import flag_modified
     inv = list(animal.inventory or [])
     entry = next((e for e in inv if e["item_id"] == req.item_id), None)
     if not entry or entry.get("quantity", 0) < req.quantity:
@@ -338,30 +329,13 @@ async def unload_item_from_animal(
     animal.inventory = inv
     flag_modified(animal, "inventory")
 
-    # Add to character inventory
-    from sqlalchemy import insert
-    char_qty = db.execute(
-        select(character_items.c.quantity).where(
-            (character_items.c.character_id == character_id)
-            & (character_items.c.item_id == req.item_id)
-        )
-    ).scalar()
-
-    if char_qty is not None:
-        db.execute(
-            sa_update(character_items).where(
-                (character_items.c.character_id == character_id)
-                & (character_items.c.item_id == req.item_id)
-            ).values(quantity=char_qty + req.quantity)
-        )
-    else:
-        db.execute(
-            insert(character_items).values(
-                character_id=character_id,
-                item_id=req.item_id,
-                quantity=req.quantity,
-            )
-        )
+    # Create new CharacterItem instance
+    new_ci = CharacterItem(
+        character_id=character_id,
+        item_id=req.item_id,
+        quantity=req.quantity,
+    )
+    db.add(new_ci)
 
     db.commit()
     db.refresh(animal)

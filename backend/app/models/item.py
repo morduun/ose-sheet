@@ -1,33 +1,49 @@
-from sqlalchemy import Column, Integer, String, Float, ForeignKey, Boolean, DateTime, JSON, Table
+from sqlalchemy import Column, Integer, String, Float, ForeignKey, Boolean, DateTime, JSON, Index
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.database import Base
 
 
-# Association table for many-to-many relationship between characters and items
-character_items = Table(
-    "character_items",
-    Base.metadata,
-    Column("character_id", Integer, ForeignKey("characters.id", ondelete="CASCADE"), primary_key=True),
-    Column("item_id", Integer, ForeignKey("items.id", ondelete="CASCADE"), primary_key=True),
-    Column("quantity", Integer, default=1),
-    Column("slot", String, nullable=True),  # null = carried; "armor" | "shield" | "main-hand" | "off-hand"
-    Column("identified", Boolean, default=False, server_default="0"),
-    Column("container_item_id", Integer, ForeignKey("items.id"), nullable=True),
-    Column("dropped", Boolean, default=False, server_default="0"),
-    Column("stashed", Boolean, default=False, server_default="0"),
-    Column("state", JSON, nullable=True),  # Per-character item state (e.g. fill, contents)
-)
+class CharacterItem(Base):
+    """Instance of an item in a character's inventory."""
 
-# Association table for campaign shared stash (party loot pool)
-campaign_stash = Table(
-    "campaign_stash",
-    Base.metadata,
-    Column("campaign_id", Integer, ForeignKey("campaigns.id", ondelete="CASCADE"), primary_key=True),
-    Column("item_id", Integer, ForeignKey("items.id", ondelete="CASCADE"), primary_key=True),
-    Column("quantity", Integer, default=1),
-    Column("container_item_id", Integer, ForeignKey("items.id"), nullable=True),
-)
+    __tablename__ = "character_items"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    character_id = Column(Integer, ForeignKey("characters.id", ondelete="CASCADE"), nullable=False, index=True)
+    item_id = Column(Integer, ForeignKey("items.id", ondelete="CASCADE"), nullable=False)
+    quantity = Column(Integer, default=1)
+    slot = Column(String, nullable=True)  # null = carried; "armor" | "shield" | "main-hand" | "off-hand" | "ammo" | "worn"
+    identified = Column(Boolean, default=False, server_default="0")
+    container_id = Column(Integer, ForeignKey("character_items.id", ondelete="SET NULL"), nullable=True, index=True)
+    dropped = Column(Boolean, default=False, server_default="0")
+    stashed = Column(Boolean, default=False, server_default="0")
+    state = Column(JSON, nullable=True)  # Per-character item state (e.g. fill, contents)
+
+    # Relationships
+    character = relationship("Character", back_populates="inventory", foreign_keys=[character_id])
+    item = relationship("Item")
+    container = relationship("CharacterItem", remote_side=[id], foreign_keys=[container_id])
+    contents = relationship("CharacterItem", foreign_keys=[container_id], overlaps="container")
+
+
+class StashItem(Base):
+    """Instance of an item in a campaign's party stash."""
+
+    __tablename__ = "campaign_stash"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    campaign_id = Column(Integer, ForeignKey("campaigns.id", ondelete="CASCADE"), nullable=False, index=True)
+    item_id = Column(Integer, ForeignKey("items.id", ondelete="CASCADE"), nullable=False)
+    quantity = Column(Integer, default=1)
+    container_id = Column(Integer, ForeignKey("campaign_stash.id", ondelete="SET NULL"), nullable=True)
+    state = Column(JSON, nullable=True)  # Per-instance state (gp_value, material, description for treasure)
+
+    # Relationships
+    campaign = relationship("Campaign", back_populates="stash_items")
+    item = relationship("Item")
+    container = relationship("StashItem", remote_side=[id], foreign_keys=[container_id])
+    contents = relationship("StashItem", foreign_keys=[container_id], overlaps="container")
 
 
 class Item(Base):
@@ -73,12 +89,6 @@ class Item(Base):
 
     # Relationships
     campaign = relationship("Campaign", back_populates="items")
-    characters = relationship(
-        "Character",
-        secondary=character_items,
-        back_populates="items",
-        foreign_keys=[character_items.c.character_id, character_items.c.item_id],
-    )
 
     def __repr__(self):
         return f"<Item(id={self.id}, name='{self.name}', type='{self.item_type}', default={self.is_default})>"

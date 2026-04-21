@@ -4,12 +4,10 @@ import copy
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session, attributes
-from sqlalchemy import update, insert, select
 
 from app.database import get_db
 from app.dependencies import get_current_user
-from app.models import Item, Character, User, Campaign
-from app.models.item import character_items
+from app.models import Item, Character, User, Campaign, CharacterItem
 from app.schemas import (
     Item as ItemSchema,
     ItemCreate,
@@ -278,7 +276,7 @@ async def assign_item_to_character(
     current_user: User = Depends(get_current_user),
 ):
     """
-    Assign an item to a character.
+    Assign an item to a character. Always creates a new inventory instance.
 
     Must be character owner or campaign GM.
     """
@@ -312,76 +310,13 @@ async def assign_item_to_character(
             detail="Item does not belong to this character's campaign",
         )
 
-    # Check if item is already assigned — increment quantity
-    if item in character.items:
-        db.execute(
-            update(character_items)
-            .where(
-                (character_items.c.character_id == character.id) &
-                (character_items.c.item_id == item.id)
-            )
-            .values(quantity=character_items.c.quantity + assignment.quantity)
-        )
-        db.commit()
-        new_qty = db.execute(
-            select(character_items.c.quantity).where(
-                (character_items.c.character_id == character.id) &
-                (character_items.c.item_id == item.id)
-            )
-        ).scalar()
-        return {"message": f"Added {assignment.quantity} {item.name} to {character.name}'s inventory (total: {new_qty})"}
-
-    # Assign item with quantity
-    db.execute(
-        insert(character_items).values(
-            character_id=character.id,
-            item_id=item.id,
-            quantity=assignment.quantity,
-        )
+    # Always create a new instance
+    ci = CharacterItem(
+        character_id=character.id,
+        item_id=item.id,
+        quantity=assignment.quantity,
     )
+    db.add(ci)
     db.commit()
 
     return {"message": f"Item '{item.name}' assigned to {character.name} (quantity: {assignment.quantity})"}
-
-
-@router.delete("/{item_id}/assign/{character_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def unassign_item_from_character(
-    item_id: int,
-    character_id: int,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    """
-    Remove an item from a character's inventory.
-
-    Must be character owner or campaign GM.
-    """
-    # Verify character exists
-    character = db.query(Character).filter(Character.id == character_id).first()
-    if not character:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Character with id {character_id} not found",
-        )
-
-    # Verify item exists
-    item = db.query(Item).filter(Item.id == item_id).first()
-    if not item:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Item with id {item_id} not found",
-        )
-
-    # Check if user can modify this character's items
-    if not can_assign_item_to_character(current_user, character):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="You can only remove items from your own characters or as campaign GM",
-        )
-
-    # Remove item from character
-    if item in character.items:
-        character.items.remove(item)
-        db.commit()
-
-    return None

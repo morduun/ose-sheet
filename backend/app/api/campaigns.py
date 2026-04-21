@@ -1,11 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel
 from sqlalchemy.orm import Session
-from sqlalchemy import select, insert, update as sa_update, delete as sa_delete
 from app.database import get_db
 from app.dependencies import get_current_user
 from app.models import Campaign, User, Character
-from app.models.item import campaign_stash, character_items, Item
+from app.models.item import CharacterItem, StashItem, Item
 from app.schemas import (
     Campaign as CampaignSchema,
     Character as CharacterSchema,
@@ -22,6 +20,7 @@ from app.schemas.item import (
     StashQuantityUpdate,
     ItemPublic,
 )
+from app.schemas.dungeon import StashCoinRequest, StashCoinTakeRequest
 from app.services.permissions import (
     can_view_campaign,
     can_edit_campaign,
@@ -205,62 +204,6 @@ async def join_campaign(
 # --- Party Stash Endpoints ---
 
 
-def _upsert_character_item(db: Session, character_id: int, item_id: int, quantity: int, container_item_id: int | None = None):
-    """Add to or create a character inventory entry, optionally inside a container."""
-    existing = db.execute(
-        select(character_items.c.quantity).where(
-            (character_items.c.character_id == character_id)
-            & (character_items.c.item_id == item_id)
-        )
-    ).scalar()
-    if existing is not None:
-        db.execute(
-            sa_update(character_items)
-            .where(
-                (character_items.c.character_id == character_id)
-                & (character_items.c.item_id == item_id)
-            )
-            .values(quantity=existing + quantity, container_item_id=container_item_id)
-        )
-    else:
-        db.execute(
-            insert(character_items).values(
-                character_id=character_id,
-                item_id=item_id,
-                quantity=quantity,
-                container_item_id=container_item_id,
-            )
-        )
-
-
-def _upsert_stash(db: Session, campaign_id: int, item_id: int, quantity: int, container_item_id: int | None = None):
-    """Add to or update stash quantity for an item, optionally inside a container."""
-    existing = db.execute(
-        select(campaign_stash.c.quantity).where(
-            (campaign_stash.c.campaign_id == campaign_id)
-            & (campaign_stash.c.item_id == item_id)
-        )
-    ).scalar()
-    if existing is not None:
-        db.execute(
-            sa_update(campaign_stash)
-            .where(
-                (campaign_stash.c.campaign_id == campaign_id)
-                & (campaign_stash.c.item_id == item_id)
-            )
-            .values(quantity=existing + quantity, container_item_id=container_item_id)
-        )
-    else:
-        db.execute(
-            insert(campaign_stash).values(
-                campaign_id=campaign_id,
-                item_id=item_id,
-                quantity=quantity,
-                container_item_id=container_item_id,
-            )
-        )
-
-
 def _get_campaign_or_404(db: Session, campaign_id: int) -> Campaign:
     """Helper to fetch a campaign or raise 404."""
     campaign = db.query(Campaign).filter(Campaign.id == campaign_id).first()
@@ -286,18 +229,21 @@ async def list_stash(
             detail="You don't have access to this campaign",
         )
 
-    rows = db.execute(
-        select(campaign_stash.c.item_id, campaign_stash.c.quantity)
-        .where(campaign_stash.c.campaign_id == campaign_id)
-    ).all()
+    rows = (
+        db.query(StashItem)
+        .filter(StashItem.campaign_id == campaign_id)
+        .all()
+    )
 
     entries = []
-    for item_id, quantity in rows:
-        item = db.query(Item).filter(Item.id == item_id).first()
-        if item:
+    for row in rows:
+        if row.item:
             entries.append(StashEntry(
-                item=ItemPublic.model_validate(item),
-                quantity=quantity,
+                instance_id=row.id,
+                item=ItemPublic.model_validate(row.item),
+                quantity=row.quantity,
+                container_id=row.container_id,
+                state=row.state,
             ))
     return entries
 
@@ -309,7 +255,7 @@ async def add_to_stash(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Add an item to the party stash. GM only. Upserts (increments quantity if exists)."""
+    """Add an item to the party stash. GM only. Always creates a new instance."""
     campaign = _get_campaign_or_404(db, campaign_id)
     if not is_campaign_gm(current_user, campaign):
         raise HTTPException(
@@ -330,47 +276,35 @@ async def add_to_stash(
             detail="Item does not belong to this campaign",
         )
 
-    # Check if already in stash — upsert
-    existing = db.execute(
-        select(campaign_stash.c.quantity).where(
-            (campaign_stash.c.campaign_id == campaign_id)
-            & (campaign_stash.c.item_id == req.item_id)
-        )
-    ).scalar()
-
-    if existing is not None:
-        new_qty = existing + req.quantity
-        db.execute(
-            sa_update(campaign_stash)
-            .where(
-                (campaign_stash.c.campaign_id == campaign_id)
-                & (campaign_stash.c.item_id == req.item_id)
-            )
-            .values(quantity=new_qty)
-        )
-    else:
-        new_qty = req.quantity
-        db.execute(
-            insert(campaign_stash).values(
-                campaign_id=campaign_id,
-                item_id=req.item_id,
-                quantity=req.quantity,
-            )
-        )
+    # Always create a new stash instance
+    stash_row = StashItem(
+        campaign_id=campaign_id,
+        item_id=req.item_id,
+        quantity=req.quantity,
+        state=req.state,
+    )
+    db.add(stash_row)
     db.commit()
+    db.refresh(stash_row)
 
-    return StashEntry(item=ItemPublic.model_validate(item), quantity=new_qty)
+    return StashEntry(
+        instance_id=stash_row.id,
+        item=ItemPublic.model_validate(item),
+        quantity=stash_row.quantity,
+        container_id=stash_row.container_id,
+        state=stash_row.state,
+    )
 
 
-@router.patch("/{campaign_id}/stash/{item_id}", response_model=StashEntry)
+@router.patch("/{campaign_id}/stash/{instance_id}", response_model=StashEntry)
 async def update_stash_quantity(
     campaign_id: int,
-    item_id: int,
+    instance_id: int,
     req: StashQuantityUpdate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Set the quantity of an item in the stash. GM only."""
+    """Set the quantity of a stash instance. GM only."""
     campaign = _get_campaign_or_404(db, campaign_id)
     if not is_campaign_gm(current_user, campaign):
         raise HTTPException(
@@ -378,40 +312,37 @@ async def update_stash_quantity(
             detail="Only the GM can update stash quantities",
         )
 
-    existing = db.execute(
-        select(campaign_stash.c.quantity).where(
-            (campaign_stash.c.campaign_id == campaign_id)
-            & (campaign_stash.c.item_id == item_id)
-        )
-    ).scalar()
-    if existing is None:
+    stash_row = (
+        db.query(StashItem)
+        .filter(StashItem.id == instance_id, StashItem.campaign_id == campaign_id)
+        .first()
+    )
+    if not stash_row:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Item not found in stash",
         )
 
-    db.execute(
-        sa_update(campaign_stash)
-        .where(
-            (campaign_stash.c.campaign_id == campaign_id)
-            & (campaign_stash.c.item_id == item_id)
-        )
-        .values(quantity=req.quantity)
-    )
+    stash_row.quantity = req.quantity
     db.commit()
+    db.refresh(stash_row)
 
-    item = db.query(Item).filter(Item.id == item_id).first()
-    return StashEntry(item=ItemPublic.model_validate(item), quantity=req.quantity)
+    return StashEntry(
+        instance_id=stash_row.id,
+        item=ItemPublic.model_validate(stash_row.item),
+        quantity=stash_row.quantity,
+        container_id=stash_row.container_id,
+    )
 
 
-@router.delete("/{campaign_id}/stash/{item_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{campaign_id}/stash/{instance_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def remove_from_stash(
     campaign_id: int,
-    item_id: int,
+    instance_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Remove an item from the stash entirely. GM only."""
+    """Remove a stash instance entirely. GM only."""
     campaign = _get_campaign_or_404(db, campaign_id)
     if not is_campaign_gm(current_user, campaign):
         raise HTTPException(
@@ -419,32 +350,26 @@ async def remove_from_stash(
             detail="Only the GM can remove items from the stash",
         )
 
-    existing = db.execute(
-        select(campaign_stash.c.quantity).where(
-            (campaign_stash.c.campaign_id == campaign_id)
-            & (campaign_stash.c.item_id == item_id)
-        )
-    ).scalar()
-    if existing is None:
+    stash_row = (
+        db.query(StashItem)
+        .filter(StashItem.id == instance_id, StashItem.campaign_id == campaign_id)
+        .first()
+    )
+    if not stash_row:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Item not found in stash",
         )
 
-    db.execute(
-        sa_delete(campaign_stash).where(
-            (campaign_stash.c.campaign_id == campaign_id)
-            & (campaign_stash.c.item_id == item_id)
-        )
-    )
+    db.delete(stash_row)
     db.commit()
     return None
 
 
-@router.post("/{campaign_id}/stash/{item_id}/take", response_model=dict)
+@router.post("/{campaign_id}/stash/{instance_id}/take", response_model=dict)
 async def take_from_stash(
     campaign_id: int,
-    item_id: int,
+    instance_id: int,
     req: StashTakeRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -475,72 +400,68 @@ async def take_from_stash(
             detail="You can only take items for your own characters or as campaign GM",
         )
 
-    # Check stash quantity
-    stash_qty = db.execute(
-        select(campaign_stash.c.quantity).where(
-            (campaign_stash.c.campaign_id == campaign_id)
-            & (campaign_stash.c.item_id == item_id)
-        )
-    ).scalar()
-    if stash_qty is None:
+    # Lookup stash instance
+    stash_row = (
+        db.query(StashItem)
+        .filter(StashItem.id == instance_id, StashItem.campaign_id == campaign_id)
+        .first()
+    )
+    if not stash_row:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Item not found in stash",
         )
-    if stash_qty < req.quantity:
+    if stash_row.quantity < req.quantity:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Not enough in stash (available: {stash_qty})",
+            detail=f"Not enough in stash (available: {stash_row.quantity})",
         )
 
-    item = db.query(Item).filter(Item.id == item_id).first()
+    item = stash_row.item
     is_container = bool(item and (item.item_metadata or {}).get("capacity"))
 
-    # Decrement stash
-    new_stash_qty = stash_qty - req.quantity
+    # Decrement stash or delete if exhausted
+    new_stash_qty = stash_row.quantity - req.quantity
     if new_stash_qty <= 0:
-        db.execute(
-            sa_delete(campaign_stash).where(
-                (campaign_stash.c.campaign_id == campaign_id)
-                & (campaign_stash.c.item_id == item_id)
-            )
-        )
+        db.delete(stash_row)
     else:
-        db.execute(
-            sa_update(campaign_stash)
-            .where(
-                (campaign_stash.c.campaign_id == campaign_id)
-                & (campaign_stash.c.item_id == item_id)
-            )
-            .values(quantity=new_stash_qty)
-        )
+        stash_row.quantity = new_stash_qty
 
-    # Increment character inventory
-    _upsert_character_item(db, req.character_id, item_id, req.quantity)
+    # Create new CharacterItem row (carry state from stash for treasure details)
+    new_char_item = CharacterItem(
+        character_id=req.character_id,
+        item_id=item.id,
+        quantity=req.quantity,
+        state=stash_row.state,
+    )
+    db.add(new_char_item)
+    db.flush()  # get new_char_item.id for container contents
 
     # If this is a container, also take all contents from stash
     contents_moved = []
     if is_container:
-        content_rows = db.execute(
-            select(campaign_stash.c.item_id, campaign_stash.c.quantity).where(
-                (campaign_stash.c.campaign_id == campaign_id)
-                & (campaign_stash.c.container_item_id == item_id)
+        content_rows = (
+            db.query(StashItem)
+            .filter(
+                StashItem.campaign_id == campaign_id,
+                StashItem.container_id == instance_id,
             )
-        ).fetchall()
+            .all()
+        )
 
         for crow in content_rows:
-            # Add to character inventory inside the container
-            _upsert_character_item(db, req.character_id, crow.item_id, crow.quantity, container_item_id=item_id)
-            # Remove from stash
-            db.execute(
-                sa_delete(campaign_stash).where(
-                    (campaign_stash.c.campaign_id == campaign_id)
-                    & (campaign_stash.c.item_id == crow.item_id)
-                )
+            # Create CharacterItem for each content, container_id = new container instance
+            content_char_item = CharacterItem(
+                character_id=req.character_id,
+                item_id=crow.item_id,
+                quantity=crow.quantity,
+                container_id=new_char_item.id,
             )
-            content_item = db.query(Item).filter(Item.id == crow.item_id).first()
-            if content_item:
-                contents_moved.append(content_item.name)
+            db.add(content_char_item)
+            if crow.item:
+                contents_moved.append(crow.item.name)
+            # Remove content from stash
+            db.delete(crow)
 
     db.commit()
     msg = f"{character.name} took {req.quantity} {item.name} from the stash"
@@ -549,10 +470,9 @@ async def take_from_stash(
     return {"message": msg}
 
 
-@router.post("/{campaign_id}/stash/{item_id}/return", response_model=dict)
+@router.post("/{campaign_id}/stash/return", response_model=dict)
 async def return_to_stash(
     campaign_id: int,
-    item_id: int,
     req: StashReturnRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -583,68 +503,71 @@ async def return_to_stash(
             detail="You can only return items from your own characters or as campaign GM",
         )
 
-    # Check character inventory quantity
-    char_row = db.execute(
-        select(character_items.c.quantity, character_items.c.container_item_id).where(
-            (character_items.c.character_id == req.character_id)
-            & (character_items.c.item_id == item_id)
+    # Lookup character inventory instance
+    char_item = (
+        db.query(CharacterItem)
+        .filter(
+            CharacterItem.id == req.instance_id,
+            CharacterItem.character_id == req.character_id,
         )
-    ).first()
-    char_qty = char_row.quantity if char_row else None
-    if char_qty is None or char_qty < req.quantity:
+        .first()
+    )
+    if not char_item:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Item not found in character inventory",
+        )
+    if char_item.quantity < req.quantity:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Character doesn't have enough of this item (has: {char_qty or 0})",
+            detail=f"Character doesn't have enough of this item (has: {char_item.quantity})",
         )
 
-    item = db.query(Item).filter(Item.id == item_id).first()
+    item = char_item.item
     is_container = bool(item and (item.item_metadata or {}).get("capacity"))
+
+    # Create new StashItem row for the returned item (carry state for treasure details)
+    new_stash_item = StashItem(
+        campaign_id=campaign_id,
+        item_id=item.id,
+        quantity=req.quantity,
+        state=char_item.state,
+    )
+    db.add(new_stash_item)
+    db.flush()  # get new_stash_item.id for container contents
 
     # If this is a container, also return all contents to stash
     contents_moved = []
     if is_container:
-        content_rows = db.execute(
-            select(character_items.c.item_id, character_items.c.quantity).where(
-                (character_items.c.character_id == req.character_id)
-                & (character_items.c.container_item_id == item_id)
+        content_rows = (
+            db.query(CharacterItem)
+            .filter(
+                CharacterItem.character_id == req.character_id,
+                CharacterItem.container_id == req.instance_id,
             )
-        ).fetchall()
+            .all()
+        )
 
         for crow in content_rows:
-            # Add to stash with container_item_id preserved
-            _upsert_stash(db, campaign_id, crow.item_id, crow.quantity, container_item_id=item_id)
-            # Remove from character inventory
-            db.execute(
-                sa_delete(character_items).where(
-                    (character_items.c.character_id == req.character_id)
-                    & (character_items.c.item_id == crow.item_id)
-                )
+            # Create StashItem for each content, container_id = new stash container instance
+            content_stash_item = StashItem(
+                campaign_id=campaign_id,
+                item_id=crow.item_id,
+                quantity=crow.quantity,
+                container_id=new_stash_item.id,
             )
-            content_item = db.query(Item).filter(Item.id == crow.item_id).first()
-            if content_item:
-                contents_moved.append(content_item.name)
+            db.add(content_stash_item)
+            if crow.item:
+                contents_moved.append(crow.item.name)
+            # Remove content from character inventory
+            db.delete(crow)
 
-    # Decrement character inventory for the item itself
-    new_char_qty = char_qty - req.quantity
+    # Decrement character inventory or delete if exhausted
+    new_char_qty = char_item.quantity - req.quantity
     if new_char_qty <= 0:
-        db.execute(
-            sa_delete(character_items).where(
-                (character_items.c.character_id == req.character_id)
-                & (character_items.c.item_id == item_id)
-            )
-        )
+        db.delete(char_item)
     else:
-        db.execute(
-            sa_update(character_items)
-            .where(
-                (character_items.c.character_id == req.character_id)
-                & (character_items.c.item_id == item_id)
-            )
-            .values(quantity=new_char_qty)
-        )
-
-    # Add the item itself to stash (container goes as a loose stash item)
-    _upsert_stash(db, campaign_id, item_id, req.quantity)
+        char_item.quantity = new_char_qty
 
     db.commit()
     msg = f"{character.name} returned {req.quantity} {item.name} to the stash"
@@ -656,25 +579,6 @@ async def return_to_stash(
 # --- Party Treasury (Stash Coins) ---
 
 
-class StashCoinRequest(BaseModel):
-    """Add coins to the party treasury."""
-    cp: int = 0
-    sp: int = 0
-    ep: int = 0
-    gp: int = 0
-    pp: int = 0
-
-
-class StashCoinTakeRequest(BaseModel):
-    """Take coins from treasury to a character."""
-    character_id: int
-    cp: int = 0
-    sp: int = 0
-    ep: int = 0
-    gp: int = 0
-    pp: int = 0
-
-
 @router.get("/{campaign_id}/treasury")
 async def get_stash_coins(
     campaign_id: int,
@@ -682,54 +586,46 @@ async def get_stash_coins(
     current_user: User = Depends(get_current_user),
 ):
     """Get the party treasury coin totals."""
+    from app.services.currency import get_stash_coin_totals
     campaign = _get_campaign_or_404(db, campaign_id)
     if not can_view_campaign(current_user, campaign):
         raise HTTPException(status_code=403, detail="Not a member of this campaign")
-    return {
-        "cp": campaign.stash_cp,
-        "sp": campaign.stash_sp,
-        "ep": campaign.stash_ep,
-        "gp": campaign.stash_gp,
-        "pp": campaign.stash_pp,
-    }
+    return get_stash_coin_totals(campaign_id, db)
 
 
 @router.post("/{campaign_id}/treasury")
-async def add_stash_coins(
+async def add_stash_coins_endpoint(
     campaign_id: int,
     req: StashCoinRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     """Add coins to the party treasury."""
+    from app.services.currency import add_stash_coins as _add_stash_coins, get_stash_coin_totals
     campaign = _get_campaign_or_404(db, campaign_id)
     if not can_view_campaign(current_user, campaign):
         raise HTTPException(status_code=403, detail="Not a member of this campaign")
 
-    campaign.stash_cp = (campaign.stash_cp or 0) + req.cp
-    campaign.stash_sp = (campaign.stash_sp or 0) + req.sp
-    campaign.stash_ep = (campaign.stash_ep or 0) + req.ep
-    campaign.stash_gp = (campaign.stash_gp or 0) + req.gp
-    campaign.stash_pp = (campaign.stash_pp or 0) + req.pp
+    amounts = {"cp": req.cp, "sp": req.sp, "ep": req.ep, "gp": req.gp, "pp": req.pp}
+    _add_stash_coins(campaign_id, amounts, db)
     db.commit()
 
-    return {
-        "cp": campaign.stash_cp,
-        "sp": campaign.stash_sp,
-        "ep": campaign.stash_ep,
-        "gp": campaign.stash_gp,
-        "pp": campaign.stash_pp,
-    }
+    return get_stash_coin_totals(campaign_id, db)
 
 
 @router.post("/{campaign_id}/treasury/take")
-async def take_stash_coins(
+async def take_stash_coins_endpoint(
     campaign_id: int,
     req: StashCoinTakeRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Take coins from the party treasury to a character's purse."""
+    """Take coins from the party treasury to a character's inventory."""
+    from app.services.currency import (
+        take_stash_coins as _take_stash_coins,
+        add_coins,
+        get_stash_coin_totals,
+    )
     campaign = _get_campaign_or_404(db, campaign_id)
     if not can_view_campaign(current_user, campaign):
         raise HTTPException(status_code=403, detail="Not a member of this campaign")
@@ -738,43 +634,32 @@ async def take_stash_coins(
     if not character or character.campaign_id != campaign_id:
         raise HTTPException(status_code=400, detail="Character not in this campaign")
 
-    # Validate treasury has enough
-    for coin, amount in [("cp", req.cp), ("sp", req.sp), ("ep", req.ep), ("gp", req.gp), ("pp", req.pp)]:
-        if amount > 0 and (getattr(campaign, f"stash_{coin}") or 0) < amount:
-            raise HTTPException(status_code=400, detail=f"Not enough {coin.upper()} in treasury")
+    amounts = {"cp": req.cp, "sp": req.sp, "ep": req.ep, "gp": req.gp, "pp": req.pp}
+    if not _take_stash_coins(campaign_id, amounts, db):
+        raise HTTPException(status_code=400, detail="Not enough coins in treasury")
 
-    # Move coins
-    campaign.stash_cp = (campaign.stash_cp or 0) - req.cp
-    campaign.stash_sp = (campaign.stash_sp or 0) - req.sp
-    campaign.stash_ep = (campaign.stash_ep or 0) - req.ep
-    campaign.stash_gp = (campaign.stash_gp or 0) - req.gp
-    campaign.stash_pp = (campaign.stash_pp or 0) - req.pp
-
-    character.copper = (character.copper or 0) + req.cp
-    character.silver = (character.silver or 0) + req.sp
-    character.electrum = (character.electrum or 0) + req.ep
-    character.gold = (character.gold or 0) + req.gp
-    character.platinum = (character.platinum or 0) + req.pp
-
+    add_coins(character.id, amounts, db)
     db.commit()
 
     return {
         "message": f"{character.name} took coins from the treasury",
-        "treasury": {
-            "cp": campaign.stash_cp, "sp": campaign.stash_sp, "ep": campaign.stash_ep,
-            "gp": campaign.stash_gp, "pp": campaign.stash_pp,
-        },
+        "treasury": get_stash_coin_totals(campaign_id, db),
     }
 
 
 @router.post("/{campaign_id}/treasury/return")
-async def return_stash_coins(
+async def return_stash_coins_endpoint(
     campaign_id: int,
     req: StashCoinTakeRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Return coins from a character's purse to the party treasury."""
+    """Return coins from a character's inventory to the party treasury."""
+    from app.services.currency import (
+        spend_coins,
+        add_stash_coins as _add_stash_coins,
+        get_stash_coin_totals,
+    )
     campaign = _get_campaign_or_404(db, campaign_id)
     if not can_view_campaign(current_user, campaign):
         raise HTTPException(status_code=403, detail="Not a member of this campaign")
@@ -783,35 +668,19 @@ async def return_stash_coins(
     if not character or character.campaign_id != campaign_id:
         raise HTTPException(status_code=400, detail="Character not in this campaign")
 
-    # Validate character has enough
-    for coin, char_field, amount in [
-        ("cp", "copper", req.cp), ("sp", "silver", req.sp), ("ep", "electrum", req.ep),
-        ("gp", "gold", req.gp), ("pp", "platinum", req.pp),
-    ]:
-        if amount > 0 and (getattr(character, char_field) or 0) < amount:
-            raise HTTPException(status_code=400, detail=f"{character.name} doesn't have enough {coin.upper()}")
+    amounts = {"cp": req.cp, "sp": req.sp, "ep": req.ep, "gp": req.gp, "pp": req.pp}
+    if not spend_coins(character.id, amounts, db):
+        raise HTTPException(
+            status_code=400,
+            detail=f"{character.name} doesn't have enough coins",
+        )
 
-    # Move coins
-    campaign.stash_cp = (campaign.stash_cp or 0) + req.cp
-    campaign.stash_sp = (campaign.stash_sp or 0) + req.sp
-    campaign.stash_ep = (campaign.stash_ep or 0) + req.ep
-    campaign.stash_gp = (campaign.stash_gp or 0) + req.gp
-    campaign.stash_pp = (campaign.stash_pp or 0) + req.pp
-
-    character.copper = (character.copper or 0) - req.cp
-    character.silver = (character.silver or 0) - req.sp
-    character.electrum = (character.electrum or 0) - req.ep
-    character.gold = (character.gold or 0) - req.gp
-    character.platinum = (character.platinum or 0) - req.pp
-
+    _add_stash_coins(campaign_id, amounts, db)
     db.commit()
 
     return {
         "message": f"{character.name} returned coins to the treasury",
-        "treasury": {
-            "cp": campaign.stash_cp, "sp": campaign.stash_sp, "ep": campaign.stash_ep,
-            "gp": campaign.stash_gp, "pp": campaign.stash_pp,
-        },
+        "treasury": get_stash_coin_totals(campaign_id, db),
     }
 
 

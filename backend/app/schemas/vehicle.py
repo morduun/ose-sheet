@@ -72,6 +72,7 @@ class VehicleUpdateRequest(BaseModel):
 
 class VehicleCargoEntry(BaseModel):
     """An item in a vehicle's cargo hold."""
+    instance_id: int  # vehicle_cargo.id
     item: ItemPublic
     quantity: int
 
@@ -86,3 +87,4 @@ class VehicleCargoTakeRequest(BaseModel):
     """Request to take cargo to a character."""
     character_id: int
     quantity: int = Field(default=1, ge=1)
+    instance_id: int | None = None  # CharacterItem.id for return-to-cargo

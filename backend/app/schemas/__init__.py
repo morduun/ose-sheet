@@ -27,6 +27,8 @@ from app.schemas.item import (
     StashTakeRequest,
     StashReturnRequest,
     StashQuantityUpdate,
+    SplitRequest,
+    MergeRequest,
 )
 from app.schemas.spell import Spell, SpellCreate, SpellBatchCreate, SpellUpdate, CharacterSpellAssignment
 from app.schemas.memorized_spell import (

@@ -2,7 +2,7 @@ from app.models.user import User
 from app.models.campaign import Campaign, campaign_players
 from app.models.character import Character
 from app.models.character_class import CharacterClass
-from app.models.item import Item, character_items, campaign_stash
+from app.models.item import Item, CharacterItem, StashItem
 from app.models.spell import Spell, character_spellbook
 from app.models.memorized_spell import MemorizedSpell
 from app.models.monster import Monster
@@ -14,7 +14,8 @@ from app.models.specialist_type import SpecialistType
 from app.models.treasure_type import TreasureType
 from app.models.dungeon import Dungeon, DungeonRoom
 from app.models.animal import CharacterAnimal
-from app.models.vehicle import Vehicle, VehicleType, vehicle_cargo
+from app.models.vehicle import Vehicle, VehicleType, VehicleCargo
+from app.models.hex_map import HexMap, HexCell
 
 __all__ = [
     "User",
@@ -23,8 +24,8 @@ __all__ = [
     "Character",
     "CharacterClass",
     "Item",
-    "character_items",
-    "campaign_stash",
+    "CharacterItem",
+    "StashItem",
     "Spell",
     "character_spellbook",
     "MemorizedSpell",
@@ -40,5 +41,7 @@ __all__ = [
     "CharacterAnimal",
     "Vehicle",
     "VehicleType",
-    "vehicle_cargo",
+    "VehicleCargo",
+    "HexMap",
+    "HexCell",
 ]

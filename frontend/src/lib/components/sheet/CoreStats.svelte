@@ -75,10 +75,11 @@
   }
 
   async function decrementAmmo(weapon) {
-    if (weapon.weapon_type !== 'ranged' || !weapon.ammo_item_id || weapon.ammo_count == null) return;
+    const ammoId = weapon.ammo_instance_id || weapon.ammo_item_id;
+    if (weapon.weapon_type !== 'ranged' || !ammoId || weapon.ammo_count == null) return;
     const newCount = weapon.ammo_count - 1;
     try {
-      await api.patch(`/characters/${character.id}/items/${weapon.ammo_item_id}`, {
+      await api.patch(`/characters/${character.id}/inventory/${ammoId}`, {
         quantity: newCount,
       });
       weapon.ammo_count = newCount;
@@ -623,6 +624,9 @@
       <h1 class="font-serif text-3xl text-ink">{character.name}</h1>
       <p class="text-ink-faint text-sm">
         {character.character_class?.name ?? character.combat_stats?.monster_name ?? 'Unknown'} · Level {character.level} · {character.alignment ?? 'Neutral'}
+        {#if character.secondary_skill}
+          · <span class="italic">{character.secondary_skill}</span>
+        {/if}
       </p>
     </div>
     <div class="ml-auto flex gap-2">
@@ -908,6 +912,37 @@
         </div>
       </div>
     {/if}
+
+    <!-- Save Abilities (e.g. Parry Death Blow) -->
+    {#if character.combat_stats?.save_abilities?.length}
+      <div class="panel sm:min-w-[200px]">
+        <h2 class="section-title">Special Defenses</h2>
+        {#each character.combat_stats.save_abilities as sa}
+          <div class="mb-2 last:mb-0">
+            <div class="flex items-center justify-between">
+              <span class="text-sm font-medium text-ink">{sa.name}</span>
+              <button
+                class="btn text-xs"
+                disabled={!rollDice}
+                on:click={() => rollDice && rollDice('1d20', (roll) => {
+                  const target = character.saving_throws?.[sa.save_type];
+                  if (target == null) return `Rolled ${roll} (no save target)`;
+                  return roll >= target
+                    ? `Parried! (needed ${target}) — ${sa.success_effect || 'Success'}`
+                    : `Failed! (needed ${target})`;
+                })}
+              >
+                Roll Save
+              </button>
+            </div>
+            <div class="text-xs text-ink-faint mt-0.5">{sa.description}</div>
+            <div class="text-xs text-ink-faint italic">
+              Save vs. {sa.save_type} · {sa.frequency?.replace(/_/g, ' ')}
+            </div>
+          </div>
+        {/each}
+      </div>
+    {/if}
   </div>
 
   <!-- Combat Stats — 4 columns -->
@@ -1167,21 +1202,42 @@
 
                 <!-- Normal Damage -->
                 <td class="text-center py-1">
-                  <button
-                    class="cursor-pointer hover:bg-parchment-100 transition-colors rounded px-1.5 -mx-1"
-                    disabled={!rollDice}
-                    on:click={() => {
-                      rollDice && rollDice(w.damage_dice, (total) => {
-                        const dmg = total + (w.damage_mod || 0);
-                        const modStr = w.damage_mod
-                          ? ` (${total} ${w.damage_mod > 0 ? '+' : '\u2212'} ${Math.abs(w.damage_mod)})`
-                          : '';
-                        return `${dmg} damage${modStr}`;
-                      });
-                    }}
-                  >
-                    {w.damage_dice}{#if w.damage_mod > 0}+{w.damage_mod}{:else if w.damage_mod < 0}{w.damage_mod}{/if}
-                  </button>
+                  {#if w.dual_damage_dice}
+                    <button
+                      class="cursor-pointer hover:bg-parchment-100 transition-colors rounded px-1.5 -mx-1"
+                      disabled={!rollDice}
+                      on:click={async () => {
+                        if (!rollDice) return;
+                        let roll1 = 0;
+                        await rollDice(w.damage_dice, (total) => { roll1 = total; return { display: total, text: `Main hand: ${total}` }; });
+                        await rollDice(w.dual_damage_dice, (total) => {
+                          const best = Math.max(roll1, total);
+                          const dmg = best + (w.damage_mod || 0);
+                          const mod = w.damage_mod || 0;
+                          const modStr = mod ? ` ${mod > 0 ? '+' : '\u2212'} ${Math.abs(mod)}` : '';
+                          return { display: dmg, text: `Best of ${roll1} / ${total}${modStr} = ${dmg} damage` };
+                        });
+                      }}
+                    >
+                      {w.damage_dice} / {w.dual_damage_dice}{#if w.damage_mod > 0}+{w.damage_mod}{:else if w.damage_mod < 0}{w.damage_mod}{/if}
+                    </button>
+                  {:else}
+                    <button
+                      class="cursor-pointer hover:bg-parchment-100 transition-colors rounded px-1.5 -mx-1"
+                      disabled={!rollDice}
+                      on:click={() => {
+                        rollDice && rollDice(w.damage_dice, (total) => {
+                          const dmg = total + (w.damage_mod || 0);
+                          const modStr = w.damage_mod
+                            ? ` (${total} ${w.damage_mod > 0 ? '+' : '\u2212'} ${Math.abs(w.damage_mod)})`
+                            : '';
+                          return `${dmg} damage${modStr}`;
+                        });
+                      }}
+                    >
+                      {w.damage_dice}{#if w.damage_mod > 0}+{w.damage_mod}{:else if w.damage_mod < 0}{w.damage_mod}{/if}
+                    </button>
+                  {/if}
                 </td>
 
                 <!-- Class attack Damage sub-columns -->

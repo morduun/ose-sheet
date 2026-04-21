@@ -119,11 +119,7 @@ export const ITEM_METADATA_TEMPLATES = {
     effect: '',
     duration: '',
   },
-  scroll: {
-    spell_name: '',
-    spell_level: null,
-    spell_class: '',
-  },
+  scroll: {},
   ring: {
     effect: '',
     charges: null,
@@ -201,9 +197,7 @@ export const METADATA_FIELD_REFERENCE = {
     { key: 'duration', type: 'string', desc: 'How long the effect lasts (e.g. "1d6+1 turns")' },
   ],
   scroll: [
-    { key: 'spell_name', type: 'string', desc: 'Name of the spell on the scroll' },
-    { key: 'spell_level', type: 'int', desc: 'Level of the spell' },
-    { key: 'spell_class', type: 'string', desc: 'Casting class: cleric, magic-user, druid, illusionist' },
+    { key: 'scroll_spells', type: 'array', desc: 'Spells on this scroll (managed via structured editor)' },
   ],
   ring: [
     { key: 'effect', type: 'string', desc: 'What the ring does when worn' },

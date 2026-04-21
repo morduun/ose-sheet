@@ -211,6 +211,51 @@ export function createDungeonTracker(campaignId) {
     save();
   }
 
+  function undoTurn() {
+    state.update(s => {
+      if (s.currentTurn <= 0) return s;
+      const torches = s.torches.map(t => ({ ...t, remaining: t.remaining + 1 }));
+      const lanterns = s.lanterns.map(l => {
+        if (l.out && l.remaining <= 0) {
+          return { ...l, remaining: 1, out: false };
+        }
+        return { ...l, remaining: l.remaining + 1 };
+      });
+      const customTimers = s.customTimers.map(t => ({ ...t, remaining: t.remaining + 1 }));
+      const currentTurn = s.currentTurn - 1;
+      return {
+        ...s,
+        currentTurn,
+        torches,
+        lanterns,
+        customTimers,
+        history: s.history.filter(h => h.turn <= currentTurn),
+        _lastEvents: [],
+      };
+    });
+    save();
+  }
+
+  function resetTracker() {
+    state.set({
+      currentTurn: 0,
+      torches: [],
+      lanterns: [],
+      rationsTotal: 0,
+      rationsConsumed: 0,
+      customTimers: [],
+      notes: '',
+      history: [],
+      nextId: 1,
+    });
+    save();
+  }
+
+  function setNotes(text) {
+    state.update(s => ({ ...s, notes: text }));
+    save();
+  }
+
   load();
 
   return {
@@ -218,7 +263,10 @@ export function createDungeonTracker(campaignId) {
     load,
     save,
     advanceTurn,
+    undoTurn,
+    resetTracker,
     getStatus,
+    setNotes,
     addTorch, removeTorch,
     addLantern, refillLantern, removeLantern,
     adjustRations, consumeRation,

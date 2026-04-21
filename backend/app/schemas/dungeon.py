@@ -10,11 +10,25 @@ class RoomMonster(BaseModel):
     quantity: int = 1
 
 
+class ScrollSpellEntry(BaseModel):
+    """A single spell on a scroll."""
+    spell_id: int
+    name: str
+    level: int
+    spell_class: str  # "magic-user", "cleric", "druid", "illusionist"
+
+
 class RoomItem(BaseModel):
     item_id: int
     quantity: int = 1
     hidden: bool = False
     search_chance: int | None = None  # X-in-6, e.g. 1 = 1-in-6
+    # Per-instance treasure details (gems, jewelry, special items)
+    gp_value: int | None = None
+    material: str | None = None
+    description: str | None = None
+    # Scroll spell contents
+    scroll_spells: list[ScrollSpellEntry] | None = None
 
 
 class RoomTrap(BaseModel):

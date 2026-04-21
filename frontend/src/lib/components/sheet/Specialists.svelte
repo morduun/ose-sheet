@@ -99,12 +99,7 @@
     paying = true;
     try {
       const result = await api.post(`/characters/${character.id}/specialists/payday`);
-      character.platinum = result.platinum;
-      character.gold = result.gold;
-      character.electrum = result.electrum;
-      character.silver = result.silver;
-      character.copper = result.copper;
-      character = character;
+      character = character; // trigger reactivity for parent refresh
       alert(`Paid ${result.cost_gp} gp in specialist wages.`);
     } catch (e) {
       alert(e.message || 'Failed to pay specialists');

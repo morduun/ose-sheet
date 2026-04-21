@@ -139,29 +139,76 @@ def get_class_ability_modifiers(character) -> dict[str, int]:
     return totals
 
 
+def get_class_combat_style(character) -> str | None:
+    """
+    Extract combat_style from class ability_metadata, if any.
+
+    Returns the style string (e.g. "dual_best_of_two") or None.
+    """
+    if not character.character_class:
+        return None
+    class_data = character.character_class.class_data or {}
+    ability_meta = class_data.get("ability_metadata", {})
+    for _name, meta in ability_meta.items():
+        if meta.get("type") == "combat_style":
+            return meta.get("style")
+    return None
+
+
+def get_class_save_abilities(character) -> list[dict]:
+    """
+    Extract save_ability entries from class ability_metadata.
+
+    Returns list of {name, trigger, save_type, frequency, success_effect, description}.
+    """
+    if not character.character_class:
+        return []
+    class_data = character.character_class.class_data or {}
+    ability_meta = class_data.get("ability_metadata", {})
+    abilities = class_data.get("abilities", {})
+    result = []
+    for name, meta in ability_meta.items():
+        if meta.get("type") != "save_ability":
+            continue
+        result.append({
+            "name": name,
+            "trigger": meta.get("trigger", ""),
+            "save_type": meta.get("save_type", "death"),
+            "frequency": meta.get("frequency", "once_per_combat"),
+            "success_effect": meta.get("success_effect", ""),
+            "description": meta.get("description", abilities.get(name, "")),
+        })
+    return result
+
+
+def _get_inventory_rows(character_id: int, db: "Session"):
+    """Query all CharacterItem rows for a character."""
+    from app.models.item import CharacterItem
+    return db.query(CharacterItem).filter(CharacterItem.character_id == character_id).all()
+
+
 def get_equipped_identified_items(character_id: int, db: "Session") -> list[tuple]:
     """
     Query equipped + identified items for a character.
 
-    Returns list of (Item, slot) tuples for items where slot IS NOT NULL
+    Returns list of (Item, slot, instance_id) tuples for items where slot IS NOT NULL
     and identified = true.
     """
-    from app.models.item import character_items, Item
+    from app.models.item import CharacterItem, Item
 
-    rows = db.execute(
-        character_items.select().where(
-            (character_items.c.character_id == character_id)
-            & (character_items.c.slot.isnot(None))
-            & (character_items.c.identified == True)
-        )
-    ).fetchall()
+    rows = db.query(CharacterItem).filter(
+        CharacterItem.character_id == character_id,
+        CharacterItem.slot.isnot(None),
+        CharacterItem.identified == True,
+    ).all()
 
     if not rows:
         return []
 
-    item_ids = {row.item_id: row.slot for row in rows}
-    items = db.query(Item).filter(Item.id.in_(item_ids.keys())).all()
-    return [(item, item_ids[item.id]) for item in items]
+    item_ids = list({row.item_id for row in rows})
+    items = db.query(Item).filter(Item.id.in_(item_ids)).all()
+    items_by_id = {item.id: item for item in items}
+    return [(items_by_id[row.item_id], row.slot, row.id) for row in rows if row.item_id in items_by_id]
 
 
 def _extract_ability_metadata(item) -> list[dict]:
@@ -178,7 +225,7 @@ def get_item_ability_modifiers(character_id: int, db: "Session") -> dict[str, in
     """
     equipped = get_equipped_identified_items(character_id, db)
     totals: dict[str, int] = {}
-    for item, _slot in equipped:
+    for item, _slot, _instance_id in equipped:
         for entry in _extract_ability_metadata(item):
             if entry.get("type") != "modifier":
                 continue
@@ -197,7 +244,7 @@ def get_item_round_effects(character_id: int, db: "Session") -> list[dict]:
     """
     equipped = get_equipped_identified_items(character_id, db)
     results = []
-    for item, _slot in equipped:
+    for item, _slot, _instance_id in equipped:
         for entry in _extract_ability_metadata(item):
             if entry.get("type") != "round_effect":
                 continue
@@ -219,7 +266,7 @@ def get_item_skills(character_id: int, db: "Session") -> list[dict]:
     """
     equipped = get_equipped_identified_items(character_id, db)
     results = []
-    for item, _slot in equipped:
+    for item, _slot, _instance_id in equipped:
         for entry in _extract_ability_metadata(item):
             if entry.get("type") != "skill":
                 continue
@@ -241,7 +288,7 @@ def get_item_special_attacks(character_id: int, db: "Session") -> list[dict]:
     """
     equipped = get_equipped_identified_items(character_id, db)
     results = []
-    for item, _slot in equipped:
+    for item, _slot, _instance_id in equipped:
         for entry in _extract_ability_metadata(item):
             if entry.get("type") != "special_attack":
                 continue
@@ -263,7 +310,7 @@ def get_item_auras(character_id: int, db: "Session") -> list[dict]:
     """
     equipped = get_equipped_identified_items(character_id, db)
     results = []
-    for item, _slot in equipped:
+    for item, _slot, _instance_id in equipped:
         for entry in _extract_ability_metadata(item):
             if entry.get("type") != "aura":
                 continue
@@ -294,60 +341,57 @@ def compute_encumbrance(character, db) -> dict:
     """
     Compute total encumbrance (in coins) and derived movement rate.
 
-    Sums item.weight * quantity for ALL inventory items plus coin totals.
+    Sums item.weight * quantity for ALL inventory items.  Currency items
+    (item_type='currency') have weight=0 on the Item definition, so their
+    weight is computed from state via ``coin_weight_from_state``.
     Items with null weight are treated as 0 (weightless until GM assigns).
     Dropped containers and their contents are excluded from the total.
     """
-    from app.models.item import character_items, Item
+    from app.models.item import CharacterItem, Item
+    from app.services.currency import coin_weight_from_state
 
-    rows = db.execute(
-        character_items.select().where(
-            character_items.c.character_id == character.id
-        )
-    ).fetchall()
+    rows = db.query(CharacterItem).filter(
+        CharacterItem.character_id == character.id
+    ).all()
 
-    item_weight = 0
+    total_weight = 0
     if rows:
-        # Identify dropped container item_ids
-        dropped_ids = {row.item_id for row in rows if row.dropped}
+        # Identify dropped container instance IDs
+        dropped_ids = {row.id for row in rows if row.dropped}
 
-        item_ids = {}
+        # Build a map of item_id -> Item for weight lookups
+        active_rows = []
         for row in rows:
             if row.stashed:
                 continue  # Skip stashed items (home base)
             if row.dropped:
                 continue  # Skip dropped containers
-            if row.container_item_id in dropped_ids:
+            if row.container_id in dropped_ids:
                 continue  # Skip items inside dropped containers
-            item_ids.setdefault(row.item_id, 0)
-            item_ids[row.item_id] += row.quantity
-        items = db.query(Item).filter(Item.id.in_(item_ids.keys())).all() if item_ids else []
-        for item in items:
-            item_weight += (item.weight or 0) * item_ids[item.id]
+            active_rows.append(row)
 
-    coin_weight = (
-        (character.copper or 0)
-        + (character.silver or 0)
-        + (character.electrum or 0)
-        + (character.gold or 0)
-        + (character.platinum or 0)
-    )
+        if active_rows:
+            item_ids = list({r.item_id for r in active_rows})
+            items = db.query(Item).filter(Item.id.in_(item_ids)).all()
+            items_by_id = {i.id: i for i in items}
 
-    # Exclude coin weight if coins are in a dropped container
-    coin_container_id = getattr(character, 'coin_container_id', None)
-    if coin_container_id and coin_container_id in dropped_ids:
-        coin_weight = 0
-
-    total = item_weight + coin_weight
+            for row in active_rows:
+                item = items_by_id.get(row.item_id)
+                if not item:
+                    continue
+                if item.item_type == "currency":
+                    total_weight += coin_weight_from_state(row.state)
+                else:
+                    total_weight += (item.weight or 0) * row.quantity
 
     movement = 0
     for threshold, rate in _ENCUMBRANCE_TABLE:
-        if total <= threshold:
+        if total_weight <= threshold:
             movement = rate
             break
 
     return {
-        "encumbrance": total,
+        "encumbrance": total_weight,
         "effective_movement": movement,
     }
 
@@ -366,28 +410,29 @@ def compute_ac(character, db) -> dict:
     - Rear AC = base AC only (no DEX, no shield, no ability mods)
     - Shieldless AC = base AC + DEX mod + ability mods (no shield)
     """
-    from app.models.item import character_items, Item
+    from app.models.item import CharacterItem, Item
 
-    rows = db.execute(
-        character_items.select().where(
-            (character_items.c.character_id == character.id)
-            & (character_items.c.slot.isnot(None))
-        )
-    ).fetchall()
+    rows = db.query(CharacterItem).filter(
+        CharacterItem.character_id == character.id,
+        CharacterItem.slot.isnot(None),
+    ).all()
 
-    equipped_item_ids = {row.item_id: row.slot for row in rows}
     base_ac = 9
     has_shield = False
 
-    if equipped_item_ids:
-        items = db.query(Item).filter(Item.id.in_(equipped_item_ids.keys())).all()
-        for item in items:
-            slot = equipped_item_ids[item.id]
-            if slot == "armor" and item.item_metadata:
+    if rows:
+        item_ids = list({row.item_id for row in rows})
+        items = db.query(Item).filter(Item.id.in_(item_ids)).all()
+        items_by_id = {item.id: item for item in items}
+        for row in rows:
+            item = items_by_id.get(row.item_id)
+            if not item:
+                continue
+            if row.slot == "armor" and item.item_metadata:
                 ac_val = item.item_metadata.get("ac")
                 if ac_val is not None:
                     base_ac = ac_val
-            elif slot == "shield":
+            elif row.slot == "shield":
                 has_shield = True
 
     dex_mod = _DEX_AC[_clamp(character.dexterity)]
@@ -421,37 +466,41 @@ def compute_equipped_weapons(character, db, is_gm: bool = True) -> list[dict]:
     When is_gm=False, unidentified weapons show their unidentified_name and
     magical bonuses (hit_bonus, damage_bonus) are zeroed out.
     """
-    from app.models.item import character_items, Item
+    from app.models.item import CharacterItem, Item
 
-    rows = db.execute(
-        character_items.select().where(
-            (character_items.c.character_id == character.id)
-            & (character_items.c.slot.in_(["main-hand", "off-hand", "ammo"]))
-        )
-    ).fetchall()
+    rows = db.query(CharacterItem).filter(
+        CharacterItem.character_id == character.id,
+        CharacterItem.slot.in_(["main-hand", "off-hand", "ammo"]),
+    ).all()
 
     if not rows:
         return []
 
-    slot_map = {row.item_id: row.slot for row in rows}
-    qty_map = {row.item_id: row.quantity for row in rows}
-    identified_map = {row.item_id: row.identified for row in rows}
-    items = db.query(Item).filter(Item.id.in_(slot_map.keys())).all()
+    item_ids = list({row.item_id for row in rows})
+    items = db.query(Item).filter(Item.id.in_(item_ids)).all()
     items_by_id = {item.id: item for item in items}
 
+    # Build per-instance maps
+    slot_map = {row.id: row.slot for row in rows}
+    qty_map = {row.id: row.quantity for row in rows}
+    identified_map = {row.id: row.identified for row in rows}
+    item_id_map = {row.id: row.item_id for row in rows}
+
     # Identify weapons and ammo
-    weapons = []  # (item, slot)
+    weapons = []  # (item, slot, instance_id)
     ammo_item = None
     ammo_count = 0
-    for item_id, slot in slot_map.items():
-        item = items_by_id.get(item_id)
+    ammo_instance_id = None
+    for row in rows:
+        item = items_by_id.get(row.item_id)
         if not item:
             continue
-        if slot == "ammo":
+        if row.slot == "ammo":
             ammo_item = item
-            ammo_count = qty_map.get(item_id, 0)
+            ammo_count = row.quantity
+            ammo_instance_id = row.id
         elif item.item_type == "weapon":
-            weapons.append((item, slot))
+            weapons.append((item, row.slot, row.id))
 
     if not weapons:
         return []
@@ -472,14 +521,54 @@ def compute_equipped_weapons(character, db, is_gm: bool = True) -> list[dict]:
 
     # Dual-wield: both hand slots occupied by weapons
     dual_wield = (
-        any(s == "main-hand" for _, s in weapons)
-        and any(s == "off-hand" for _, s in weapons)
+        any(s == "main-hand" for _, s, _ in weapons)
+        and any(s == "off-hand" for _, s, _ in weapons)
     )
 
+    # Check for class combat style (e.g. duellist dual_best_of_two)
+    combat_style = get_class_combat_style(character)
+    dual_best_of_two = dual_wield and combat_style == "dual_best_of_two"
+
+    # For dual_best_of_two: emit a single entry with both damage dice, no penalties
+    if dual_best_of_two:
+        main_weapon = next(((item, slot, iid) for item, slot, iid in weapons if slot == "main-hand"), None)
+        off_weapon = next(((item, slot, iid) for item, slot, iid in weapons if slot == "off-hand"), None)
+        if main_weapon and off_weapon:
+            mitem, _, mid = main_weapon
+            oitem, _, oid = off_weapon
+            m_meta = mitem.item_metadata or {}
+            o_meta = oitem.item_metadata or {}
+            m_identified = identified_map.get(mid, False)
+            o_identified = identified_map.get(oid, False)
+            mask_m = not is_gm and not m_identified and mitem.unidentified_name
+            mask_o = not is_gm and not o_identified and oitem.unidentified_name
+            m_name = mitem.unidentified_name if mask_m else mitem.name
+            o_name = oitem.unidentified_name if mask_o else oitem.name
+            hit_bonus = 0 if mask_m else m_meta.get("hit_bonus", 0)
+            damage_bonus = 0 if mask_m else m_meta.get("damage_bonus", 0)
+            eff_thac0 = base_thac0 - str_mod - hit_bonus - melee_thac0_mod
+            entry = {
+                "slot": "main-hand",
+                "item_id": mitem.id,
+                "instance_id": mid,
+                "name": f"{m_name} / {o_name}",
+                "weapon_type": "melee",
+                "effective_thac0": eff_thac0,
+                "damage_dice": m_meta.get("damage_dice", "1d6"),
+                "dual_damage_dice": o_meta.get("damage_dice", "1d6"),
+                "damage_mod": str_mod + damage_bonus,
+                "range": "Melee",
+                "qualities": [] if mask_m else m_meta.get("qualities", []),
+                "identified": m_identified,
+                "unidentified_name": mitem.unidentified_name,
+                "combat_style": "dual_best_of_two",
+            }
+            return [entry]
+
     result = []
-    for item, slot in weapons:
+    for item, slot, instance_id in weapons:
         meta = item.item_metadata or {}
-        weapon_identified = identified_map.get(item.id, False)
+        weapon_identified = identified_map.get(instance_id, False)
 
         # When player view and weapon is unidentified with an unidentified_name,
         # mask magical bonuses and qualities
@@ -516,6 +605,7 @@ def compute_equipped_weapons(character, db, is_gm: bool = True) -> list[dict]:
             entry = {
                 "slot": slot,
                 "item_id": item.id,
+                "instance_id": instance_id,
                 "name": display_name,
                 "weapon_type": "ranged",
                 "effective_thac0": eff_thac0,
@@ -532,6 +622,7 @@ def compute_equipped_weapons(character, db, is_gm: bool = True) -> list[dict]:
             if ammo_name:
                 entry["ammo_name"] = ammo_name
                 entry["ammo_item_id"] = ammo_item.id
+                entry["ammo_instance_id"] = ammo_instance_id
             # Item special attacks (from weapon's own ability_metadata)
             if weapon_identified:
                 item_specials = [
@@ -555,6 +646,7 @@ def compute_equipped_weapons(character, db, is_gm: bool = True) -> list[dict]:
             entry = {
                 "slot": slot,
                 "item_id": item.id,
+                "instance_id": instance_id,
                 "name": display_name,
                 "weapon_type": "melee",
                 "effective_thac0": eff_thac0,
@@ -585,6 +677,7 @@ def compute_equipped_weapons(character, db, is_gm: bool = True) -> list[dict]:
                 entry_thrown = {
                     "slot": slot,
                     "item_id": item.id,
+                    "instance_id": instance_id,
                     "name": display_name,
                     "weapon_type": "thrown",
                     "effective_thac0": thrown_thac0,

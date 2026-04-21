@@ -56,17 +56,12 @@ class CharacterBase(BaseModel):
     # Combat Stats (optional JSON)
     combat_stats: dict | None = None
 
-    # Currency
-    copper: int = Field(default=0, ge=0)
-    silver: int = Field(default=0, ge=0)
-    electrum: int = Field(default=0, ge=0)
-    gold: int = Field(default=0, ge=0)
-    platinum: int = Field(default=0, ge=0)
-    coin_container_id: int | None = None  # Which container holds the coins
-
     # State
     status: str = "active"
     is_alive: bool = True
+
+    # Secondary skill (optional rule)
+    secondary_skill: str | None = None
 
     # Notes
     notes: str | None = None
@@ -107,15 +102,9 @@ class CharacterUpdate(BaseModel):
     saving_throws: dict | None = None
     combat_stats: dict | None = None
 
-    copper: int | None = Field(default=None, ge=0)
-    silver: int | None = Field(default=None, ge=0)
-    electrum: int | None = Field(default=None, ge=0)
-    gold: int | None = Field(default=None, ge=0)
-    platinum: int | None = Field(default=None, ge=0)
-    coin_container_id: int | None = None
-
     status: str | None = None
     is_alive: bool | None = None
+    secondary_skill: str | None = None
     notes: str | None = None
     player_id: int | None = None  # GM can reassign character ownership
     loyalty: int | None = Field(default=None, ge=2, le=12)

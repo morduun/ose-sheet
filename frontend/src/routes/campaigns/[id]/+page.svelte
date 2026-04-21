@@ -10,6 +10,7 @@
   import PartyStash from '$lib/components/campaign/PartyStash.svelte';
   import VehiclePanel from '$lib/components/campaign/VehiclePanel.svelte';
   import DungeonList from '$lib/components/campaign/DungeonList.svelte';
+  import HexMapList from '$lib/components/campaign/HexMapList.svelte';
 
   const campaignId = $page.params.id;
 
@@ -120,6 +121,10 @@
           class={activeTab === 'dungeons' ? 'tab-active' : 'tab'}
           on:click={() => (activeTab = 'dungeons')}
         >Dungeons</button>
+        <button
+          class={activeTab === 'hexmaps' ? 'tab-active' : 'tab'}
+          on:click={() => (activeTab = 'hexmaps')}
+        >Hex Maps</button>
       {/if}
     </div>
 
@@ -249,6 +254,8 @@
       <VehiclePanel campaignId={campaignId} isGM={isGM} characters={myCharacters} />
     {:else if activeTab === 'dungeons'}
       <DungeonList {campaignId} {isGM} />
+    {:else if activeTab === 'hexmaps'}
+      <HexMapList {campaignId} {isGM} />
     {/if}
   </PageWrapper>
 {/if}

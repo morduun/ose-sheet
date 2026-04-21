@@ -127,7 +127,7 @@
       return;
     }
     try {
-      await api.patch(`/campaigns/${campaignId}/stash/${entry.item.id}`, {
+      await api.patch(`/campaigns/${campaignId}/stash/${entry.instance_id}`, {
         quantity: newQty,
       });
       await loadStash();
@@ -138,7 +138,7 @@
 
   async function removeFromStash(entry) {
     try {
-      await api.delete(`/campaigns/${campaignId}/stash/${entry.item.id}`);
+      await api.delete(`/campaigns/${campaignId}/stash/${entry.instance_id}`);
       await loadStash();
     } catch (e) {
       alert(e.message);
@@ -156,7 +156,7 @@
     if (!takeEntry || !takeCharacterId) return;
     takingItem = true;
     try {
-      await api.post(`/campaigns/${campaignId}/stash/${takeEntry.item.id}/take`, {
+      await api.post(`/campaigns/${campaignId}/stash/${takeEntry.instance_id}/take`, {
         character_id: takeCharacterId,
         quantity: takeQty,
       });

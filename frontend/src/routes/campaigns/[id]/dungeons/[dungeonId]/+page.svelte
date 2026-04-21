@@ -26,6 +26,28 @@
   // Selected room
   let selectedRoomId = null;
   let currentSection = null;  // active section for wandering monster rolls
+  let collapsedSections = new Set();
+  let sectionsInitialized = false;
+  let roomSearch = '';
+
+  // Start with all sections collapsed
+  $: if (!sectionsInitialized && sectionNames.length > 0) {
+    collapsedSections = new Set(sectionNames);
+    sectionsInitialized = true;
+  }
+
+  function toggleSection(sectionName) {
+    if (collapsedSections.has(sectionName)) {
+      collapsedSections.delete(sectionName);
+    } else {
+      collapsedSections.add(sectionName);
+    }
+    collapsedSections = collapsedSections;
+  }
+
+  // Filter rooms by search query (number or name)
+  $: roomSearchLower = roomSearch.trim().toLowerCase();
+  $: roomSearchActive = roomSearchLower.length > 0;
 
   // Dungeon edit modal
   let showDungeonEditor = false;
@@ -38,9 +60,10 @@
   let editingRoom = null;
   let roomForm = resetRoomForm();
 
-  // Monster/item lookups
+  // Monster/item/spell lookups
   let monsters = [];
   let items = [];
+  let allSpells = [];
 
   const STATE_COLORS = {
     unvisited: 'bg-parchment-200 text-ink-faint',
@@ -100,6 +123,7 @@
       // Preload monsters and items for the editor
       try { monsters = await api.get(`/monsters/?campaign_id=${campaignId}&limit=500`); } catch { monsters = []; }
       try { items = await api.get(`/items/?campaign_id=${campaignId}&limit=500`); } catch { items = []; }
+      try { allSpells = await api.get(`/spells/?limit=500`); } catch { allSpells = []; }
     } catch (e) {
       error = e.message;
     } finally {
@@ -219,11 +243,18 @@
   // Move a room item to the party stash
   async function takeItemToStash(room, itemIndex) {
     const item = room.items[itemIndex];
+    // Build state from treasure/scroll details if present
+    const state = {};
+    if (item.gp_value != null) state.appraised_value = item.gp_value;
+    if (item.material) state.material = item.material;
+    if (item.description) state.description = item.description;
+    if (item.scroll_spells?.length) state.scroll_spells = item.scroll_spells;
     try {
-      // Add to campaign stash
+      // Add to campaign stash (with treasure state if any)
       await api.post(`/campaigns/${campaignId}/stash`, {
         item_id: item.item_id,
         quantity: item.quantity,
+        ...(Object.keys(state).length > 0 ? { state } : {}),
       });
       // Remove from room
       const updatedItems = [...room.items];
@@ -429,7 +460,43 @@
   // Room editor helpers
   function addMonster() { roomForm.monsters = [...roomForm.monsters, { monster_id: null, quantity: 1 }]; }
   function removeMonster(i) { roomForm.monsters = roomForm.monsters.filter((_, idx) => idx !== i); }
-  function addItem() { roomForm.items = [...roomForm.items, { item_id: null, quantity: 1, hidden: false, search_chance: null }]; }
+  function addItem() { roomForm.items = [...roomForm.items, { item_id: null, quantity: 1, hidden: false, search_chance: null, gp_value: null, material: null, description: null }]; }
+  function isItemTreasure(itemId) {
+    const it = items.find(i => i.id === itemId);
+    return it?.item_type === 'treasure';
+  }
+  function isItemScroll(itemId) {
+    const it = items.find(i => i.id === itemId);
+    return it?.item_type === 'scroll';
+  }
+
+  // Scroll spell picker helpers
+  const SCROLL_CLASSES = [
+    { value: 'magic-user', label: 'Magic-User' },
+    { value: 'cleric', label: 'Cleric' },
+    { value: 'druid', label: 'Druid' },
+    { value: 'illusionist', label: 'Illusionist' },
+  ];
+
+  function addScrollSpell(item) {
+    if (!item.scroll_spells) item.scroll_spells = [];
+    item.scroll_spells = [...item.scroll_spells, { spell_id: null, name: '', level: 0, spell_class: 'magic-user' }];
+    roomForm = roomForm;
+  }
+  function removeScrollSpell(item, idx) {
+    item.scroll_spells = item.scroll_spells.filter((_, i) => i !== idx);
+    roomForm = roomForm;
+  }
+  function onScrollSpellSelect(spellEntry, spellId) {
+    const spell = allSpells.find(s => s.id === spellId);
+    if (spell) {
+      spellEntry.spell_id = spell.id;
+      spellEntry.name = spell.name;
+      spellEntry.level = spell.level;
+      spellEntry.spell_class = spell.spell_class;
+    }
+    roomForm = roomForm;
+  }
   function removeItem(i) { roomForm.items = roomForm.items.filter((_, idx) => idx !== i); }
   function addTrap() { roomForm.traps = [...roomForm.traps, { name: '', trigger: '', damage_dice: '', save_type: '', save_target: null, description: '' }]; }
   function removeTrap(i) { roomForm.traps = roomForm.traps.filter((_, idx) => idx !== i); }
@@ -574,25 +641,50 @@
       <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
         <!-- Room list sidebar -->
         <div class="lg:col-span-3 space-y-1">
+          <!-- Room search -->
+          <div class="px-2 pb-1">
+            <input
+              class="input w-full text-sm py-1 px-2"
+              type="text"
+              bind:value={roomSearch}
+              placeholder="Search rooms..."
+            />
+          </div>
           {#each roomsBySection as group}
-            {#if sectionNames.length > 0}
-              <div class="text-[10px] text-ink-faint uppercase tracking-wide px-3 pt-2 pb-1 font-medium {currentSection === group.name ? 'text-ink' : ''}">
-                {group.label}
-              </div>
+            {@const filteredRooms = roomSearchActive
+              ? group.rooms.filter(r =>
+                  r.name.toLowerCase().includes(roomSearchLower) ||
+                  String(r.room_number).includes(roomSearchLower))
+              : group.rooms}
+            {#if !roomSearchActive || filteredRooms.length > 0}
+              {#if sectionNames.length > 0}
+                {@const isCollapsed = !roomSearchActive && collapsedSections.has(group.name)}
+                {@const clearedCount = group.rooms.filter(r => r.state === 'cleared').length}
+                <button
+                  class="w-full text-left text-xs text-ink-faint uppercase tracking-wide px-3 pt-3 pb-1 font-semibold flex items-center gap-1.5 hover:text-ink transition-colors {currentSection === group.name ? 'text-ink' : ''}"
+                  on:click={() => toggleSection(group.name)}
+                >
+                  <span class="text-xs">{isCollapsed ? '\u25B8' : '\u25BE'}</span>
+                  <span class="flex-1">{group.label}</span>
+                  <span class="text-[10px] font-normal">{clearedCount}/{group.rooms.length}</span>
+                </button>
+              {/if}
+              {#if roomSearchActive || sectionNames.length === 0 || !collapsedSections.has(group.name)}
+                {#each filteredRooms as room (room.id)}
+                  <button
+                    class="w-full text-left px-3 py-2 rounded text-sm transition-colors
+                      {selectedRoomId === room.id ? 'bg-parchment-100 border border-ink-faint/30' : 'hover:bg-parchment-100/50'}"
+                    on:click={() => { selectedRoomId = room.id; roomSearch = ''; }}
+                  >
+                    <div class="flex items-center gap-2">
+                      <span class="font-serif text-ink font-medium w-6 text-right shrink-0">{room.room_number}.</span>
+                      <span class="text-ink truncate flex-1">{room.name}</span>
+                      <span class="text-[10px] px-1.5 py-0.5 rounded {STATE_COLORS[room.state]}">{STATE_LABELS[room.state]}</span>
+                    </div>
+                  </button>
+                {/each}
+              {/if}
             {/if}
-            {#each group.rooms as room (room.id)}
-              <button
-                class="w-full text-left px-3 py-2 rounded text-sm transition-colors
-                  {selectedRoomId === room.id ? 'bg-parchment-100 border border-ink-faint/30' : 'hover:bg-parchment-100/50'}"
-                on:click={() => selectedRoomId = room.id}
-              >
-                <div class="flex items-center gap-2">
-                  <span class="font-serif text-ink font-medium w-6 text-right shrink-0">{room.room_number}.</span>
-                  <span class="text-ink truncate flex-1">{room.name}</span>
-                  <span class="text-[10px] px-1.5 py-0.5 rounded {STATE_COLORS[room.state]}">{STATE_LABELS[room.state]}</span>
-                </div>
-              </button>
-            {/each}
           {/each}
         </div>
 
@@ -705,9 +797,29 @@
                               {#if item.search_chance}
                                 <span class="text-xs text-ink-faint">({item.search_chance}-in-6)</span>
                               {/if}
+                              {#if item.material || item.gp_value || item.description}
+                                <div class="text-xs text-ink-faint ml-2">
+                                  {#if item.material}<span class="italic">{item.material}</span>{/if}
+                                  {#if item.gp_value}<span class="ml-1">({item.gp_value} gp)</span>{/if}
+                                  {#if item.description}<span class="ml-1">— {item.description}</span>{/if}
+                                </div>
+                              {/if}
+                              {#if item.scroll_spells?.length}
+                                <div class="text-xs text-ink-faint ml-2">Contains: {item.scroll_spells.map(s => `${s.name} (L${s.level})`).join(', ')}</div>
+                              {/if}
                             {/if}
                           {:else}
                             <span class="text-ink">{itemName(item.item_id)} x{item.quantity}</span>
+                            {#if item.material || item.gp_value || item.description}
+                              <div class="text-xs text-ink-faint ml-2">
+                                {#if item.material}<span class="italic">{item.material}</span>{/if}
+                                {#if item.gp_value}<span class="ml-1">({item.gp_value} gp)</span>{/if}
+                                {#if item.description}<span class="ml-1">— {item.description}</span>{/if}
+                              </div>
+                            {/if}
+                            {#if item.scroll_spells?.length}
+                              <div class="text-xs text-ink-faint ml-2">Contains: {item.scroll_spells.map(s => `${s.name} (L${s.level})`).join(', ')}</div>
+                            {/if}
                           {/if}
                         </div>
                         <div class="flex gap-1">
@@ -881,21 +993,67 @@
         <button type="button" class="btn-ghost text-xs" on:click={addItem}>+ Add</button>
       </div>
       {#each roomForm.items as item, i}
-        <div class="flex gap-2 items-end mb-1">
-          <select class="input flex-1 text-sm" bind:value={item.item_id}>
-            <option value={null}>Select item...</option>
-            {#each items as it}
-              <option value={it.id}>{it.name}</option>
-            {/each}
-          </select>
-          <input class="input w-16 text-sm" type="number" min="1" bind:value={item.quantity} placeholder="Qty" />
-          <label class="flex items-center gap-1 text-xs text-ink-faint shrink-0">
-            <input type="checkbox" bind:checked={item.hidden} class="accent-ink" /> Hidden
-          </label>
-          {#if item.hidden}
-            <input class="input w-14 text-sm" type="number" min="1" max="6" bind:value={item.search_chance} placeholder="X/6" title="Search chance (X-in-6)" />
+        <div class="border border-parchment-200 rounded p-2 mb-2 space-y-1">
+          <div class="flex gap-2 items-end">
+            <select class="input flex-1 text-sm" bind:value={item.item_id}>
+              <option value={null}>Select item...</option>
+              {#each items as it}
+                <option value={it.id}>{it.name}</option>
+              {/each}
+            </select>
+            <input class="input w-16 text-sm" type="number" min="1" bind:value={item.quantity} placeholder="Qty" />
+            <label class="flex items-center gap-1 text-xs text-ink-faint shrink-0">
+              <input type="checkbox" bind:checked={item.hidden} class="accent-ink" /> Hidden
+            </label>
+            {#if item.hidden}
+              <input class="input w-14 text-sm" type="number" min="1" max="6" bind:value={item.search_chance} placeholder="X/6" title="Search chance (X-in-6)" />
+            {/if}
+            <button type="button" class="btn-danger text-xs px-1.5 py-0.5" on:click={() => removeItem(i)}>X</button>
+          </div>
+          {#if isItemTreasure(item.item_id)}
+            <div class="flex gap-2 items-end pl-2 border-l-2 border-parchment-200">
+              <input class="input w-24 text-sm" type="number" min="0" bind:value={item.gp_value} placeholder="Value (gp)" title="Appraised value in gp" />
+              <input class="input flex-1 text-sm" type="text" bind:value={item.material} placeholder="Material (e.g. Ruby, Gold filigree)" />
+              <input class="input flex-1 text-sm" type="text" bind:value={item.description} placeholder="Description (e.g. Engraved with elven runes)" />
+            </div>
           {/if}
-          <button type="button" class="btn-danger text-xs px-1.5 py-0.5" on:click={() => removeItem(i)}>X</button>
+          {#if isItemScroll(item.item_id)}
+            <div class="pl-2 border-l-2 border-parchment-200 space-y-1">
+              <div class="flex items-center justify-between">
+                <span class="text-xs text-ink-faint">Scroll Spells</span>
+                <button type="button" class="btn-ghost text-xs" on:click={() => addScrollSpell(item)}>+ Add Spell</button>
+              </div>
+              {#if item.scroll_spells?.length}
+                {#each item.scroll_spells as se, si}
+                  <div class="flex gap-1 items-end">
+                    <select class="input text-xs py-0.5 w-28" bind:value={se.spell_class} on:change={() => { se.spell_id = null; se.name = ''; se.level = 0; roomForm = roomForm; }}>
+                      {#each SCROLL_CLASSES as sc}
+                        <option value={sc.value}>{sc.label}</option>
+                      {/each}
+                    </select>
+                    <select
+                      class="input text-xs py-0.5 flex-1"
+                      value={se.spell_id}
+                      on:change={(e) => onScrollSpellSelect(se, parseInt(e.target.value))}
+                    >
+                      <option value={null}>Select spell...</option>
+                      {#each allSpells.filter(s => s.spell_class === se.spell_class).sort((a, b) => a.level - b.level || a.name.localeCompare(b.name)) as spell}
+                        <option value={spell.id}>L{spell.level} — {spell.name}</option>
+                      {/each}
+                    </select>
+                    <button type="button" class="btn-danger text-xs px-1 py-0.5" on:click={() => removeScrollSpell(item, si)}>X</button>
+                  </div>
+                {/each}
+              {:else}
+                <p class="text-xs text-ink-faint">No spells (protection scroll or mundane text)</p>
+              {/if}
+              {#if !item.description && !item.scroll_spells?.length}
+                <input class="input w-full text-sm mt-1" type="text" bind:value={item.description} placeholder="Description (e.g. Protection from Undead, Letter from the Baron)" />
+              {:else if !item.scroll_spells?.length}
+                <input class="input w-full text-sm mt-1" type="text" bind:value={item.description} placeholder="Description" />
+              {/if}
+            </div>
+          {/if}
         </div>
       {/each}
     </div>

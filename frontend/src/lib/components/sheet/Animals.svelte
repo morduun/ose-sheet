@@ -192,7 +192,7 @@
     loadQty = 1;
     showLoadModal = true;
     try {
-      charItems = await api.get(`/characters/${character.id}/items`);
+      charItems = await api.get(`/characters/${character.id}/inventory`);
     } catch { charItems = []; }
   }
 
@@ -201,7 +201,7 @@
     loadingItem = true;
     try {
       const updated = await api.post(`/characters/${character.id}/animals/${loadAnimalId}/load`, {
-        item_id: parseInt(loadItemId),
+        instance_id: parseInt(loadItemId),
         quantity: parseInt(loadQty) || 1,
       });
       const idx = animals.findIndex(a => a.id === loadAnimalId);
@@ -502,7 +502,7 @@
       <select id="li-item" class="input w-full" bind:value={loadItemId}>
         <option value={null}>Select item...</option>
         {#each charItems.filter(e => !e.slot) as entry}
-          <option value={entry.item.id}>{entry.item.name} (x{entry.quantity}{entry.item.weight ? `, ${entry.item.weight}cn ea` : ''})</option>
+          <option value={entry.instance_id}>{entry.item.name} (x{entry.quantity}{entry.item.weight ? `, ${entry.item.weight}cn ea` : ''})</option>
         {/each}
       </select>
     </div>
