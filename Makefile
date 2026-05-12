@@ -1,70 +1,140 @@
+# ── Configuration ─────────────────────────────────────────────
+
+PYTHON ?= python3
+
+BACKEND := backend
+FRONTEND := frontend
+
+VENV := $(BACKEND)/.venv
+VENV_BIN := $(VENV)/bin
+
+ifeq ($(OS),Windows_NT)
+	VENV_BIN := $(VENV)/Scripts
+endif
+
+# From repo root
+PY := $(VENV_BIN)/python
+
+# From inside ./backend after: cd backend
+PY_IN_BACKEND := .venv/bin/python
+ifeq ($(OS),Windows_NT)
+	PY_IN_BACKEND := .venv/Scripts/python
+endif
+
+DB_DIR := $(BACKEND)/data
+DB := $(DB_DIR)/ose_sheets.db
+
+BACKUP_DIR := $(BACKEND)/backups
+ALEMBIC_VERSIONS_DIR := $(BACKEND)/alembic/versions
+
 .PHONY: backend frontend dev install install-backend install-frontend \
-       migrate migrate-new seed seed-all seed-test-user seed-admin \
-       seed-classes seed-items seed-spells build db-shell \
-       backup restore list-backups
+	preflight-dirs \
+	migrate migrate-new db-shell \
+	seed seed-all seed-test-user seed-admin seed-classes seed-items seed-spells \
+	backup restore list-backups build clean
 
 # ── Dev Servers ──────────────────────────────────────────────
 
-backend:
-	cd backend && . .venv/bin/activate && uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+backend: install-backend preflight-dirs
+	cd $(BACKEND) && $(PY_IN_BACKEND) -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
 frontend:
-	cd frontend && npm run dev
+	cd $(FRONTEND) && npm run dev
+
+dev:
+	make -j2 backend frontend
 
 # ── Setup ────────────────────────────────────────────────────
 
 install: install-backend install-frontend
 
 install-backend:
-	cd backend && python -m venv .venv && . .venv/bin/activate && pip install -r requirements.txt
+	@if [ ! -d "$(VENV)" ]; then \
+		echo "Creating Python virtual environment..."; \
+		$(PYTHON) -m venv "$(VENV)"; \
+	fi
+	@$(PY) -m ensurepip --upgrade >/dev/null 2>&1 || true
+	@$(PY) -m pip install --upgrade pip setuptools wheel
+	@$(PY) -m pip install -r "$(BACKEND)/requirements.txt"
 
 install-frontend:
-	cd frontend && npm install
+	$(PY) -c "import os; os.makedirs('$(FRONTEND)/static/assets/dice-box', exist_ok=True)"
+	cd $(FRONTEND) && npm install
+
+# ── Preflight ────────────────────────────────────────────────
+
+preflight-dirs:
+	@mkdir -p "$(DB_DIR)" "$(BACKUP_DIR)" "$(ALEMBIC_VERSIONS_DIR)"
 
 # ── Database ─────────────────────────────────────────────────
 
-migrate:
-	cd backend && . .venv/bin/activate && alembic upgrade head
+migrate: install-backend preflight-dirs
+	@echo "Validating migration chain..."
+	@cd $(BACKEND) && $(PY_IN_BACKEND) -m alembic history 2>&1 | python3 -c "\
+import sys; \
+lines = sys.stdin.readlines(); \
+bases = [l for l in lines if '<base>' in l]; \
+print(f'Found {len(bases)} base migration(s)'); \
+sys.exit(0) if len(bases) == 1 else (print('ERROR: Migration chain is broken - multiple or missing base revisions found:'), [print(l.strip()) for l in bases], sys.exit(1)) \
+"
+	@if [ ! -f "$(DB)" ]; then \
+		latest_backup=$$(ls -t $(BACKUP_DIR)/ose_sheets_*.db 2>/dev/null | head -1); \
+		if [ -n "$$latest_backup" ]; then \
+			echo "No database found. Restoring from latest backup: $$latest_backup"; \
+			cp "$$latest_backup" "$(DB)"; \
+		else \
+			echo "No database or backup found. Creating blank database..."; \
+			sqlite3 "$(DB)" "PRAGMA journal_mode=WAL;"; \
+		fi \
+	fi
+	cd $(BACKEND) && $(PY_IN_BACKEND) -m alembic upgrade head
 
-migrate-new:
-	@read -p "Migration message: " msg; \
-	cd backend && . .venv/bin/activate && alembic revision --autogenerate -m "$$msg"
+migrate-new: install-backend preflight-dirs
+	@printf "Migration message: "; \
+	read msg; \
+	cd $(BACKEND) && $(PY_IN_BACKEND) -m alembic revision --autogenerate -m "$$msg"
 
-db-shell:
-	sqlite3 backend/data/ose_sheets.db
+db-shell: preflight-dirs
+	sqlite3 $(DB)
 
 # ── Seed Data ────────────────────────────────────────────────
 
 seed-all: seed-test-user seed-admin seed-classes seed-items seed-spells
 
-seed-test-user:
-	cd backend && . .venv/bin/activate && python seed_test_user.py
+seed-test-user: install-backend preflight-dirs
+	$(PY) $(BACKEND)/seed_test_user.py
 
-seed-admin:
-	cd backend && . .venv/bin/activate && python seed_admin_user.py
+seed-admin: install-backend preflight-dirs
+	$(PY) $(BACKEND)/seed_admin_user.py
 
-seed-classes:
-	cd backend && . .venv/bin/activate && python seed_default_character_classes.py
+seed-classes: install-backend preflight-dirs
+	$(PY) $(BACKEND)/seed_default_character_classes.py
 
-seed-items:
-	cd backend && . .venv/bin/activate && python seed_default_items.py
+seed-items: install-backend preflight-dirs
+	$(PY) $(BACKEND)/seed_default_items.py
 
-seed-spells:
-	cd backend && . .venv/bin/activate && python seed_default_spells.py
+seed-spells: install-backend preflight-dirs
+	$(PY) $(BACKEND)/seed_default_spells.py
 
 # ── Backups ──────────────────────────────────────────────────
 
-backup:
-	cd backend && . .venv/bin/activate && python -c "from app.services.backup import create_backup; p = create_backup('data/ose_sheets.db'); print(f'Backup created: {p}')"
+backup: install-backend preflight-dirs
+	$(PY) -c "from app.services.backup import create_backup; p = create_backup('$(DB)'); print(f'Backup created: {p}')"
 
-restore:
-	@test -n "$(FILE)" || (echo "Usage: make restore FILE=backups/ose_sheets_20260222.db" && exit 1)
-	cd backend && . .venv/bin/activate && python -c "import shutil; shutil.copy2('$(FILE)', 'data/ose_sheets.db'); print('Restored from $(FILE)')"
+restore: install-backend preflight-dirs
+	@test -n "$(FILE)" || (echo "Usage: make restore FILE=backend/backups/ose_sheets_YYYYMMDD.db" && exit 1)
+	$(PY) -c "import shutil; shutil.copy2('$(FILE)', '$(DB)'); print('Restored from $(FILE)')"
 
-list-backups:
-	@ls -lh backend/backups/ose_sheets_*.db 2>/dev/null || echo "No backups found"
+list-backups: preflight-dirs
+	@ls -lh $(BACKUP_DIR)/ose_sheets_*.db 2>/dev/null || echo "No backups found"
 
 # ── Build ────────────────────────────────────────────────────
 
 build:
-	cd frontend && npm run build
+	cd $(FRONTEND) && npm run build
+
+# ── Cleanup ──────────────────────────────────────────────────
+
+clean:
+	rm -rf $(VENV)
+	rm -rf $(FRONTEND)/node_modules
