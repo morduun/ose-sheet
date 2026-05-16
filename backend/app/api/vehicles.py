@@ -27,7 +27,7 @@ from app.services.permissions import can_view_campaign, is_campaign_gm
 types_router = APIRouter()
 
 
-@types_router.get("/", response_model=list[VehicleTypeInfo])
+@types_router.get("", response_model=list[VehicleTypeInfo])
 async def list_vehicle_types(
     campaign_id: int | None = None,
     db: Session = Depends(get_db),
@@ -44,7 +44,7 @@ async def list_vehicle_types(
     return query.order_by(VehicleType.vehicle_class, VehicleType.name).all()
 
 
-@types_router.post("/", response_model=VehicleTypeInfo, status_code=status.HTTP_201_CREATED)
+@types_router.post("", response_model=VehicleTypeInfo, status_code=status.HTTP_201_CREATED)
 async def create_vehicle_type(
     req: VehicleTypeCreate,
     campaign_id: int | None = None,
@@ -220,7 +220,7 @@ def _item_to_public(item: Item) -> ItemPublic:
 
 # --- Vehicle CRUD ---
 
-@router.get("/", response_model=list[VehicleResponse])
+@router.get("", response_model=list[VehicleResponse])
 async def list_vehicles(
     campaign_id: int,
     db: Session = Depends(get_db),
@@ -249,7 +249,7 @@ async def get_vehicle(
     return _vehicle_response(v, db)
 
 
-@router.post("/", response_model=VehicleResponse, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=VehicleResponse, status_code=status.HTTP_201_CREATED)
 async def create_vehicle(
     campaign_id: int,
     req: VehicleCreateRequest,

@@ -226,3 +226,4 @@ frontend/static/assets/dice-box/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+backend/data/ose_sheets.db
