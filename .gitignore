@@ -227,3 +227,9 @@ marimo/_static/
 marimo/_lsp/
 __marimo__/
 backend/data/ose_sheets.db
+
+# Ad-hoc DB backups in backend/data/ (timestamped ones go to backend/backups/, ignored above)
+backend/data/*.db.backup*
+
+# User-uploaded character portraits / tokens (runtime data, not source)
+backend/data/uploads/
